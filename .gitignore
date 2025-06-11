@@ -1,0 +1,9 @@
+# DNS specific ignores
+*.db
+*.zone.bak
+*.log
+*.pid
+
+# General ignores
+.DS_Store
+Thumbs.db
