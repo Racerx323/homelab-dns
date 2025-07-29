@@ -1,8 +1,10 @@
 # Homelab DNS: High-Availability DNS with Pi-Hole, Unbound, and Keepalived
 
-This repository contains configuration files and guidance for setting up a resilient, private, and ad-blocking DNS solution for your homelab. It combines [Pi-Hole](https://pi-hole.net/), [Unbound](https://unbound.net/), and [Keepalived](https://www.keepalived.org/) to provide a high-availability (HA) DNS service.
+![License](https://badgen.net/github/license/Racerx323/homelab-dns)
+![last commit](https://badgen.net/github/last-commit/Racerx323/homelab-dns)
+[![Open Issues](https://badgen.net/github/open-issues/Racerx323/homelab-dns)](https://github.com/Racerx323/homelab-dns/issues?q=is%3Aissue%20state%3Aopen)
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+This repository contains configuration files and guidance for setting up a resilient, private, and ad-blocking DNS solution for your homelab. It combines [Pi-Hole](https://pi-hole.net/), [Unbound](https://unbound.net/), and [Keepalived](https://www.keepalived.org/) to provide a high-availability (HA) DNS service.
 
 ## Overview
 
@@ -27,24 +29,24 @@ This setup assumes two identical nodes (physical or virtual) for redundancy. Eac
 ```text
                       +--------------------------------+
                       |      Your Router / Gateway     |
-                      | (DHCP points DNS to Virtual IP)|
+                      |(DHCP points DNS to Virtual IP) |
                       +---------------+----------------+
                                       |
                                       v
                             [ YOUR_VIRTUAL_IP ]
-                        (Managed by Keepalived)
+                          (Managed by Keepalived)
                                       |
                   /-------------------------------------\
                  |                                     |
       +----------+----------+ (MASTER)      +----------+----------+ (BACKUP)
       |       Node 1        |               |       Node 2        |
       |---------------------|               |---------------------|
-      |  - Keepalived       | <--(VRRP)-->   |  - Keepalived       |
+      |  - Keepalived       | <--(VRRP)-->  |  - Keepalived       |
       |  - Pi-Hole          |               |  - Pi-Hole          |
       |  - Unbound          |               |  - Unbound          |
       +---------------------+               +---------------------+
                  |                                     |
-                 | (Pi-Hole forwards to 127.0.0.1#5335) |
+                 |(Pi-Hole forwards to 127.0.0.1#5335) |
                  |                                     |
                  \------------------+------------------/
                                     |
@@ -52,10 +54,10 @@ This setup assumes two identical nodes (physical or virtual) for redundancy. Eac
                              (Unbound resolves)
                                     |
                                     v
-                         +--------------------+
-                         | Internet Root &    |
-                         | Authoritative DNS  |
-                         +--------------------+
+                          +--------------------+
+                          | Internet Root &    |
+                          | Authoritative DNS  |
+                          +--------------------+
 ```
 
 ## Prerequisites
