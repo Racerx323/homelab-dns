@@ -1,7 +1,7 @@
 <!--
 Hi there! Thanks for your contribution.
 Please make sure you have read our contributing guidelines:
-https://github.com/Racerx323/homelab-dns/blob/main/.github/CONTRIBUTING.md
+https://github.com/Racerx323/homelab-dns/.github/CONTRIBUTING.md
 -->
 
 # Description
@@ -32,7 +32,7 @@ Provide instructions so we can reproduce.
 
 ## Checklist
 
-- [ ] I have read the [contributing guidelines](https://github.com/Racerx323/homelab-dns/blob/main/.github/CONTRIBUTING.md)
+- [ ] I have read the [contributing guidelines](https://github.com/Racerx323/homelab-dns/.github/CONTRIBUTING.md)
 - [ ] I have performed a self-review of my code
 - [ ] I have commented my code, particularly in hard-to-understand areas
 - [ ] I have made corresponding changes to the documentation where required
