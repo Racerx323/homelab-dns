@@ -4,6 +4,10 @@
 *.log
 *.pid
 
+# Keep live node-specific Unbound configs private; publish sanitized examples.
+Unbound/configs/pihole*.conf
+!Unbound/configs/example.conf
+
 # General ignores
 .DS_Store
 Thumbs.db
