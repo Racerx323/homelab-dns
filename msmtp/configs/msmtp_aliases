@@ -1,0 +1,7 @@
+# Location /etc/aliases
+     
+# Send root to
+root: notify@mailrise.xyz
+   
+# Send everything else to admin
+default: system@theama.me
