@@ -3,7 +3,9 @@
 ![License](https://badgen.net/github/license/Racerx323/homelab-dns)
 ![last commit](https://badgen.net/github/last-commit/Racerx323/homelab-dns)
 [![Open Issues](https://badgen.net/github/open-issues/Racerx323/homelab-dns)](https://github.com/Racerx323/homelab-dns/issues?q=is%3Aissue%20state%3Aopen)
-[![The Code Registry Verification Badge](https://thecoderegistryprod.blob.core.windows.net/public-web/verification-badges/level-1/vault/a2422bdd-04c2-442b-a4ac-4d66b62a2419/default-style_1-2ff3a6964bbc.png?v=1784057419)](https://app.thecoderegistry.com/verify/vault/a2422bdd-04c2-442b-a4ac-4d66b62a2419)
+<a href="https://app.thecoderegistry.com/verify/vault/a2422bdd-04c2-442b-a4ac-4d66b62a2419" target="_blank" rel="noopener noreferrer">
+  <img src="https://thecoderegistryprod.blob.core.windows.net/public-web/verification-badges/level-1/vault/a2422bdd-04c2-442b-a4ac-4d66b62a2419/default-style_1-2ff3a6964bbc.png?v=1784057419" alt="The Code Registry Verification Badge" width="150" />
+</a>
 
 This repository contains configuration files and guidance for setting up a resilient, private, and ad-blocking DNS solution for your homelab. It combines [Pi-Hole](https://pi-hole.net/), [Unbound](https://unbound.net/), and [Keepalived](https://www.keepalived.org/) to provide a high-availability (HA) DNS service.
 
