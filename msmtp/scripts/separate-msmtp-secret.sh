@@ -5,7 +5,6 @@
 # command-line argument.
 
 set -Eeuo pipefail
-IFS=$'\n\t'
 
 readonly PROGRAM_NAME="${0##*/}"
 

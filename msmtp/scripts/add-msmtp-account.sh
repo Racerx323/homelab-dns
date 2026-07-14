@@ -4,7 +4,6 @@
 # password outside /etc/msmtprc.
 
 set -Eeuo pipefail
-IFS=$'\n\t'
 
 readonly PROGRAM_NAME="${0##*/}"
 readonly DEFAULT_CONFIG_FILE="/etc/msmtprc"
