@@ -15,6 +15,12 @@ one node at a time and keep the DNS VIP on the known-good peer.
   rejects it. A warning alone is not permission to redesign it.
 - Stop at every failed health gate and use the rollback section.
 
+The executable gates mirror this runbook. On each standby node, use
+`ha-preflight.sh` with the extracted 1.25.1 `unbound-checkconf`, then use
+`ha-upgrade-node.sh` only after reviewing its backup. `ha-rollback-node.sh`
+performs the cached one-node downgrade. The explicit VIP moves and site A,
+PTR, and SRV review remain operator-controlled.
+
 ```mermaid
 flowchart TD
     A[Inventory and back up both nodes] --> B{Signed bundle valid?}

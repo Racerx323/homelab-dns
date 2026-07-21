@@ -8,6 +8,18 @@
 Unbound/configs/pihole*.conf
 !Unbound/configs/example.conf
 
+# Unbound packaging outputs (source inputs remain tracked).
+Unbound/packaging/work/
+Unbound/packaging/release/
+Unbound/packaging/unbound-pihole-profile/debian/.debhelper/
+Unbound/packaging/unbound-pihole-profile/debian/debhelper-build-stamp
+Unbound/packaging/unbound-pihole-profile/debian/files
+Unbound/packaging/unbound-pihole-profile/debian/unbound-pihole-profile/
+*.build
+*.buildinfo
+*.changes
+*.deb
+
 # General ignores
 .DS_Store
 Thumbs.db

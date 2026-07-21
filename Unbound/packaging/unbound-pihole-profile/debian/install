@@ -1,0 +1,4 @@
+etc/unbound/unbound.conf.d/pihole.conf etc/unbound/unbound.conf.d/
+usr/lib/sysctl.d/60-unbound-pihole-profile.conf usr/lib/sysctl.d/
+usr/share/doc/unbound-pihole-profile/examples/home.arpa.conf usr/share/doc/unbound-pihole-profile/examples/
+

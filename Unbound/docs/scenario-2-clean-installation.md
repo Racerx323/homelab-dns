@@ -9,6 +9,11 @@ resolution and contains no private local-zone records.
 
 ## 📋 Safety boundaries
 
+The three executable gates for this procedure are `v6-preflight.sh`,
+`v6-install.sh`, and `v6-rollback.sh` under `Unbound/scripts`. They preserve
+the same stop points described below; package maintainer scripts never modify
+Pi-hole or host networking.
+
 - Run all target commands on the Raspberry Pi unless marked “workstation.”
 - Do not change Pi-hole upstreams until direct Unbound tests pass.
 - Do not proceed when root DNS is blocked or intercepted.

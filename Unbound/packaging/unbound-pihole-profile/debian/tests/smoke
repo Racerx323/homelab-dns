@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+test "$(dpkg --print-architecture)" = arm64
+# shellcheck disable=SC1091
+test "$(. /etc/os-release && printf '%s' "$VERSION_ID")" = 12
+unbound-checkconf /etc/unbound/unbound.conf
+test "$(dpkg-query -W -f='${Version}' unbound-pihole-profile)" = 1.0.0
+grep -Fqx 'net.core.rmem_max = 4194304' /usr/lib/sysctl.d/60-unbound-pihole-profile.conf
+grep -Fqx 'net.core.wmem_max = 4194304' /usr/lib/sysctl.d/60-unbound-pihole-profile.conf

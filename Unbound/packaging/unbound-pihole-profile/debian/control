@@ -1,0 +1,14 @@
+Source: unbound-pihole-profile
+Section: net
+Priority: optional
+Maintainer: Racerx323 <Racerx323@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: unbound-pihole-profile
+Architecture: all
+Depends: unbound (>= 1.25.1-1~bookworm1), unbound (<< 1.25.2~), ${misc:Depends}
+Description: conservative Unbound profile for a local Pi-hole resolver
+ Installs a loopback-only recursive resolver profile on port 5335 and socket
+ buffer sysctls. It deliberately does not modify Pi-hole or host networking.

@@ -53,6 +53,8 @@ The LikeC4 model is canonical; these images are generated views:
 
 ## ⚙️ Focused references
 
+- [Pinned build and release procedure](build-and-release.md)
+- [Automated acceptance matrix](acceptance-matrix.md)
 - [Pi-hole and Unbound local-zone guide](Pi-hole-with-Unbound-local-zone-guide.md)
 - [Debian 12 Raspberry Pi 5 socket-buffer tuning](README-net-core-sysctl-debian12-rpi5.md)
 

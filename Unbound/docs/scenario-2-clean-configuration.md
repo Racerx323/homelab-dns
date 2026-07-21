@@ -67,12 +67,16 @@ server:
     so-sndbuf: 4m
 
     private-address: 10.0.0.0/8
+    private-address: 100.64.0.0/10
     private-address: 172.16.0.0/12
     private-address: 192.168.0.0/16
     private-address: 169.254.0.0/16
-    private-address: fd00::/7
+    private-address: fc00::/7
     private-address: fe80::/10
     private-address: ::ffff:0:0/96
+
+dnstap:
+    dnstap-enable: no
 ```
 
 Debian's separate trust-anchor include remains responsible for
