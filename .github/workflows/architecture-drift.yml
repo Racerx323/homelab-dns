@@ -1,0 +1,35 @@
+---
+name: Architecture Drift Check
+
+'on':
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: architecture-drift-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  erode:
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Compare DNS changes with the canonical LikeC4 model
+        uses: erode-app/erode@0
+        with:
+          model-repo: Racerx323/homelab-docs
+          model-path: architecture/likec4
+          model-ref: main
+          model-format: likec4
+          ai-provider: gemini
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+          fail-on-violations: "false"
