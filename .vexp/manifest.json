@@ -41,8 +41,8 @@
     "msmtp/scripts/add-msmtp-account.sh": "d833b3425a02f13ff2a04a1456a969d40bc795e7b4d28b5336363a9cc50d7edb",
     "msmtp/scripts/separate-msmtp-secret.sh": "a921a189d1da110689af5c733e0ec30e4c5ce7f0a338d301b7dc96dc659b1bb8"
   },
-  "indexed_at_commit": "cf68b84439d2a2437de868d38a4c365f04b0992b",
-  "indexed_at_timestamp": "2026-07-21T22:08:59.687795369+00:00",
+  "indexed_at_commit": "a4c634c8573677dda043b2c1988b77bc9f187a5a",
+  "indexed_at_timestamp": "2026-07-21T22:36:19.105481145+00:00",
   "schema_version": 3,
   "stats": {
     "total_edges": 291,
