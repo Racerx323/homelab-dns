@@ -32,6 +32,13 @@ repos:
         language: system
         types: [yaml]
 
+      - id: actionlint
+        name: Validate GitHub Actions workflows
+        entry: actionlint
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: false
+
       - id: check-github-issue-forms
         name: Validate GitHub issue forms
         entry: >-
