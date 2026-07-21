@@ -1,0 +1,17 @@
+---
+name: Repository validation
+
+'on':
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Baseline validation
+    uses: >-
+      Racerx323/homelab-docs/.github/workflows/reusable-validation.yml@7d09aae0bdf0fe80bc10263d1e8e5c682037d848

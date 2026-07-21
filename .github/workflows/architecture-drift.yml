@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Compare DNS changes with the canonical LikeC4 model
-        uses: erode-app/erode@0
+        uses: erode-app/erode@df0f47b88be6f3cc6abdf8ce0298dd084ec15a59
         with:
           model-repo: Racerx323/homelab-docs
           model-path: architecture/likec4
