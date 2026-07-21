@@ -4,6 +4,9 @@ The `unbound-pihole-profile` provides a generic, loopback-only, validating
 recursive resolver. It deliberately contains no private hostname, local zone,
 or third-party forwarding service.
 
+This guide implements the
+[Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md).
+
 ![LikeC4 recursive query](assets/likec4/unbound-recursive-query.png)
 
 ## 🌐 Recursive DNS path
@@ -205,6 +208,7 @@ DNSSEC behavior, Pi-hole forwarding, and no recurring warnings.
 
 ## 📚 Related documentation
 
+- [Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md)
 - [Scenario 2 installation](scenario-2-clean-installation.md)
 - [Scenario 2 troubleshooting](scenario-2-clean-troubleshooting.md)
 - [Pi-hole v6 configuration reference](https://docs.pi-hole.net/ftldns/configfile/)

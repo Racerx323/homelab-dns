@@ -5,6 +5,9 @@ the generic `unbound-pihole-profile` on one Raspberry Pi 5. Pi-hole v6 must be
 installed and healthy before integration. The profile performs full recursive
 resolution and contains no private local-zone records.
 
+This runbook implements the
+[Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md).
+
 ![LikeC4 clean deployment](assets/likec4/unbound-pihole-v6-reference.png)
 
 ## 📋 Safety boundaries
@@ -221,5 +224,6 @@ end state.
 
 ## 📚 Related documentation
 
+- [Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md)
 - [Scenario 2 configuration](scenario-2-clean-configuration.md)
 - [Scenario 2 troubleshooting](scenario-2-clean-troubleshooting.md)

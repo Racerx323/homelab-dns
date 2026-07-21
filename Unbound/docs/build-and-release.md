@@ -5,6 +5,9 @@ separate Pi-hole profile package. It never resolves a latest version: all
 source and output versions are pinned in
 [`../packaging/release.env`](../packaging/release.env).
 
+This procedure implements the shared build and release foundation in the
+[Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md).
+
 ## Build host
 
 Use a fully updated native Debian 12 arm64 host dedicated to package builds.

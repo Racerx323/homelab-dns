@@ -3,6 +3,9 @@
 First determine whether Unbound itself fails or Pi-hole v6 fails to use a
 healthy Unbound service.
 
+Use the [Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md)
+as the baseline when deciding whether a repair preserves the intended design.
+
 ## 🧭 Triage decision tree
 
 ```mermaid
@@ -172,3 +175,9 @@ closed. See [the clean installation rollback](scenario-2-clean-installation.md).
 Include package versions, target architecture, service logs, listener output,
 root-server tests, DNSSEC results, Pi-hole upstream output, and any conffile
 diff. Exclude private keys and provider credentials.
+
+## 📚 Related documentation
+
+- [Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md)
+- [Scenario 2 installation](scenario-2-clean-installation.md)
+- [Scenario 2 configuration](scenario-2-clean-configuration.md)

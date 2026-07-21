@@ -5,6 +5,9 @@ This guide records the intended post-upgrade configuration. The existing
 only when Unbound 1.25.1 reports an error or an operational test proves a
 conflict.
 
+This guide implements the
+[Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md).
+
 ![LikeC4 HA DNS architecture](assets/likec4/dns-ha.png)
 
 ## 🌐 DNS request path
@@ -229,5 +232,6 @@ errors.
 
 ## 📚 Related documentation
 
+- [Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md)
 - [Scenario 1 installation](scenario-1-ha-upgrade-installation.md)
 - [Scenario 1 troubleshooting](scenario-1-ha-troubleshooting.md)
