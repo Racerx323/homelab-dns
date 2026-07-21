@@ -23,8 +23,8 @@ jobs:
     steps:
       - name: Compare DNS changes with the canonical LikeC4 model
         env:
-          ERODE_GEMINI_ADVANCED_MODEL: gemini-3.5-flash
-          ERODE_GEMINI_FAST_MODEL: gemini-3.5-flash
+          ERODE_GEMINI_ADVANCED_MODEL: gemini-3.1-flash-lite
+          ERODE_GEMINI_FAST_MODEL: gemini-3.1-flash-lite
         uses: erode-app/erode@df0f47b88be6f3cc6abdf8ce0298dd084ec15a59
         with:
           model-repo: Racerx323/homelab-docs
