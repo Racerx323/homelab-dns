@@ -3,6 +3,9 @@
 Diagnose from the local Unbound process outward. Keep the VIP on the healthy
 peer while investigating a failed node.
 
+Use the [Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md)
+as the baseline when deciding whether a repair preserves the intended design.
+
 ## 🧭 Triage decision tree
 
 ```mermaid
@@ -186,3 +189,9 @@ and only then restart keepalived.
 Attach service logs, package inventory, configuration diff, affected node,
 VIP owner, timestamps, DNS test results, and rollback actions. Never include
 private control keys or provider credentials.
+
+## 📚 Related documentation
+
+- [Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md)
+- [Scenario 1 installation](scenario-1-ha-upgrade-installation.md)
+- [Scenario 1 configuration](scenario-1-ha-configuration.md)

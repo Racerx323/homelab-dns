@@ -3,6 +3,13 @@
 Use this index to select the runbook matching the target. The procedures are
 written for Linux administrators and assume command-line access with `sudo`.
 
+## 📋 Base requirements
+
+- [Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md)
+
+This requirements document is the authoritative baseline for both scenarios,
+their packaging and release process, rollback behavior, and acceptance gates.
+
 ```mermaid
 flowchart TD
     Start([Choose a deployment]) --> Existing{Unbound already installed<br/>from Debian Bookworm?}

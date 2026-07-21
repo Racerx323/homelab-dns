@@ -4,6 +4,9 @@ This runbook replaces Debian Bookworm's Unbound 1.17.1 packages with the
 signed Unbound 1.25.1 Bookworm backport on the two Pi-hole v5 nodes. Upgrade
 one node at a time and keep the DNS VIP on the known-good peer.
 
+This runbook implements the
+[Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md).
+
 ![LikeC4 rolling upgrade](assets/likec4/dns-ha-upgrade.png)
 
 ## 📋 Scope and safety rules
@@ -271,6 +274,7 @@ Pi-hole queries pass.
 
 ## 📚 Related documentation
 
+- [Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md)
 - [Scenario 1 configuration](scenario-1-ha-configuration.md)
 - [Scenario 1 troubleshooting](scenario-1-ha-troubleshooting.md)
 - [Socket-buffer tuning](README-net-core-sysctl-debian12-rpi5.md)

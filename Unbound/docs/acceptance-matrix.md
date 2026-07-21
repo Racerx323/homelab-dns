@@ -1,5 +1,8 @@
 # ✅ Unbound Test and Acceptance Matrix
 
+This matrix is the executable acceptance view of the
+[Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md).
+
 Record a dated pass/fail result and evidence location for every row. Run the
 repository checks first, then the matching target acceptance command:
 

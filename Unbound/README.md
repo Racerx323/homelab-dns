@@ -4,7 +4,9 @@ This project documents and configures Unbound for Pi-hole on Debian 12 arm64.
 It covers both the existing Pi-hole v5 high-availability deployment and a
 clean, single-node Pi-hole v6 reference installation.
 
-Start with the [Unbound documentation index](docs/INDEX.md).
+Start with the [Unbound documentation index](docs/INDEX.md). The
+[Unbound 1.25.1 scenario requirements](docs/unbound-1.25-requirements.md) are
+the authoritative baseline for both supported deployment scenarios.
 
 ## 🏗️ Packaging and deployment automation
 
