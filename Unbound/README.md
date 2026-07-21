@@ -38,14 +38,7 @@ repository are generated from that model and carry provenance metadata under
 `docs/assets/likec4`.
 
 The advisory `Architecture Drift Check` pull-request workflow compares this
-repository with that canonical model through Erode. Configure the repository
-secret `GEMINI_API_KEY` before enabling the workflow. If `homelab-docs` is
-private, also provide a read-only model-repository token as described in the
-central Erode installation guide.
-
-Merge the corresponding `homelab-docs` model change before the `homelab-dns`
-documentation change so the workflow's `model-ref: main` sees the intended
-architecture.
+repository with that canonical model through Erode.
 
 Local verification from this repository uses:
 
