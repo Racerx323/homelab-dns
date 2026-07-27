@@ -80,8 +80,6 @@ For the cleanest HA behavior, keep the Unbound local-zone configuration identica
 
 ## Conditional Forwarding
 
-Pi-hole conditional forwarding is usually not needed for an Unbound-owned local zone.
-
 Do not use conditional forwarding to send `home.arpa` queries to Unbound if Pi-hole already uses Unbound as its upstream. Pi-hole will forward the query normally.
 
 Conditional forwarding is mainly useful when reverse DNS should be sent to another LAN DNS source, such as a router or DHCP server.
@@ -130,7 +128,22 @@ Duplicated records can make troubleshooting confusing because Pi-hole may answer
 
 Pi-hole only needs Unbound to be reachable locally. Unbound does not need to bind to the keepalived VIP.
 
-Example:
+> [!NOTE]
+> Keep the local-zone policy and DNS records in their own configuration file.
+> Install both the main resolver configuration and the local-zone configuration
+> in `/etc/unbound/unbound.conf.d/` so Debian's top-level wildcard include loads
+> both files. For example, use `pihole.conf` for resolver behavior and
+> `local-zone.conf` for `private-domain`, `domain-insecure`, `local-zone`,
+> `local-data`, and `local-data-ptr` directives.
+
+The inline snippets below highlight the ownership boundary and are intentionally
+abbreviated. Use the complete, public-safe configurations as starting points:
+
+- [Main resolver configuration example](../configs/example.conf)
+- [Local-zone configuration example](../configs/example-local-zone.conf)
+
+The main resolver file (`/etc/unbound/unbound.conf.d/pihole.conf`) owns listener,
+access-control, hardening, cache, forwarding, and observability settings:
 
 ```conf
 server:
@@ -140,7 +153,13 @@ server:
 
     access-control: 127.0.0.1 allow
     access-control: ::1 allow
+```
 
+The local-zone file (`/etc/unbound/unbound.conf.d/local-zone.conf`) owns the
+internal namespace and all of its forward, service, and reverse records:
+
+```conf
+server:
     private-domain: "home.arpa"
     domain-insecure: "home.arpa"
 
@@ -149,6 +168,24 @@ server:
     local-data: "_smtp._tcp.home.arpa. 180 IN SRV 0 10 8025 mail.home.arpa."
     local-data-ptr: "10.0.0.10 dns-vip.home.arpa."
 ```
+
+From the repository root, install both complete examples with:
+
+```bash
+sudo install -o root -g root -m 0644 \
+  Unbound/configs/example.conf \
+  /etc/unbound/unbound.conf.d/pihole.conf
+
+sudo install -o root -g root -m 0644 \
+  Unbound/configs/example-local-zone.conf \
+  /etc/unbound/unbound.conf.d/local-zone.conf
+
+sudo unbound-checkconf /etc/unbound/unbound.conf
+sudo unbound-control reload
+```
+
+Replace the example domain, hostnames, and addresses before installing these
+files on production nodes. Keep both files synchronized across HA nodes.
 
 ## Validation Commands
 
@@ -240,7 +277,8 @@ For public repositories, keep real node-specific Pi-hole/Unbound configs ignored
 Recommended pattern:
 
 ```text
-Unbound/configs/example.conf
-Unbound/configs/pihole0.conf  # ignored
-Unbound/configs/pihole1.conf  # ignored
+Unbound/configs/example.conf             # resolver behavior
+Unbound/configs/example-local-zone.conf  # local DNS policy and records
+Unbound/configs/pihole0.conf             # ignored
+Unbound/configs/pihole0-local-zone.conf  # ignored
 ```

@@ -5,6 +5,8 @@
 *.pid
 
 # Keep live node-specific Unbound configs private; publish sanitized examples.
+Unbound/configs/pihole0.conf
+Unbound/configs/pihole0-local-zone.conf
 Unbound/configs/pihole*.conf
 !Unbound/configs/example.conf
 
