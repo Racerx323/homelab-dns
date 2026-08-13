@@ -29,6 +29,14 @@ Other required addresses:
 | `Keepalived/scripts/dns-check.sh` | Both nodes: `/etc/scripts/check-dns.sh` |
 | `Keepalived/scripts/keepalived-notify.sh` | Both nodes: `/usr/local/bin/keepalived-notify.sh` |
 
+> [!NOTE]
+> The notifier is a bounded producer for the Caddy-owned durable Apprise
+> queue. It requires `/usr/local/libexec/caddy-apprise-enqueue` and never
+> contacts the Apprise endpoint itself. Queue delivery, retry, dead-letter,
+> and journald behavior are documented in
+> `homelab-server-configs/Caddy/docs/APPRISE_DELIVERY.md`; delivery success is
+> never a Keepalived or VRRP health condition.
+
 ## Design summary
 
 - Both VRRP instances use VRRPv3.
@@ -243,8 +251,8 @@ grep -nE \
   'router_id|vrrp_version|state|priority|advert_int|preempt_delay|unicast_src_ip|track_src_ip' \
   "$KEEPALIVED_STAGE/keepalived.conf"
 
-grep -nE \
-  '^APPRISE_(URL|KEY|ENDPOINT)=' \
+grep -nF \
+  '/usr/local/libexec/caddy-apprise-enqueue' \
   "$KEEPALIVED_STAGE/keepalived-notify.sh"
 ```
 
@@ -255,8 +263,7 @@ vrrp_version 3
 state BACKUP
 advert_int 0.5
 preempt_delay 10
-APPRISE_URL="http://10.1.3.83:8000"
-APPRISE_KEY="apprise"
+/usr/local/libexec/caddy-apprise-enqueue
 ```
 
 Expected node-specific settings:
@@ -309,21 +316,23 @@ Expected:
 - Mode `0755`
 - Health-check exit code `0`
 
-Test Apprise from both nodes:
+Test bounded queue production from both nodes after the Caddy-owned queue has
+been installed:
 
 ```bash
 sudo -u pi /usr/local/bin/keepalived-notify.sh \
   GROUP INSTALL_TEST TEST
 
-sleep 6
-
 sudo journalctl \
   -t keepalived-notify \
+  -t caddy-apprise-queue \
   --since "2 minutes ago" \
   --no-pager
 ```
 
-Confirm successful delivery in the journal, Discord, and Pushover.
+Confirm a queue event was recorded. Delivery to Discord and Pushover is owned
+by `caddy-apprise-worker.service` and is accepted separately; a delivery
+failure does not fail this producer test.
 
 ## Phase 6: parse-test Keepalived
 
