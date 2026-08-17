@@ -279,6 +279,6 @@ Recommended pattern:
 ```text
 Unbound/configs/example.conf             # resolver behavior
 Unbound/configs/example-local-zone.conf  # local DNS policy and records
-Unbound/configs/pihole0.conf             # ignored
-Unbound/configs/pihole0-local-zone.conf  # ignored
+Unbound/configs/pihole.conf              # ignored
+Unbound/configs/pihole-local-zone.conf   # ignored
 ```
