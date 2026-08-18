@@ -10,6 +10,20 @@ readonly dig_command=${DNS_CHECK_DIG_COMMAND:-/usr/bin/dig}
 readonly systemctl_command=${DNS_CHECK_SYSTEMCTL_COMMAND:-/usr/bin/systemctl}
 readonly status_file=${DNS_CHECK_STATUS_FILE:-/run/caddy-serving-health/dns/status}
 readonly date_command=${DNS_CHECK_DATE_COMMAND:-/usr/bin/date}
+readonly logger_command=${DNS_CHECK_LOGGER_COMMAND:-/usr/bin/logger}
+status_recorded=false
+
+journal_status_fallback() {
+  local dns_status_result=$1
+  local dns_status_component=$2
+  local dns_status_check=$3
+  local dns_status_failure_class=$4
+  local dns_status_exit_status=$5
+
+  "$logger_command" --tag caddy-serving-health --priority daemon.warning -- \
+    "application=DNS component=$dns_status_component check=$dns_status_check result=$dns_status_result failure_class=$dns_status_failure_class exit_status=$dns_status_exit_status status_record=unavailable"
+  status_recorded=true
+}
 
 write_status() {
   local dns_status_result=$1
@@ -21,18 +35,53 @@ write_status() {
   local dns_status_directory=${status_file%/*}
   local dns_status_temporary
 
-  [[ -d "$dns_status_directory" && ! -L "$dns_status_directory" ]] || return 0
-  dns_status_temporary=$(mktemp "$dns_status_directory/.status.XXXXXX") || return 0
+  if [[ ! -d "$dns_status_directory" || -L "$dns_status_directory" ]]; then
+    journal_status_fallback "$dns_status_result" "$dns_status_component" \
+      "$dns_status_check" status-directory-invalid 1
+    return 0
+  fi
+  dns_status_temporary=$(mktemp "$dns_status_directory/.status.XXXXXX") || {
+    journal_status_fallback "$dns_status_result" "$dns_status_component" \
+      "$dns_status_check" status-create-failed 1
+    return 0
+  }
   printf 'schema=caddy-serving-health-status/v1\napplication=DNS\ncomponent=%s\ncheck=%s\nresult=%s\nfailure_class=%s\nnetwork=%s\nstatus=%s\nobserved_epoch=%s\n' \
     "$dns_status_component" "$dns_status_check" "$dns_status_result" \
     "$dns_status_failure_class" "$dns_status_network" "$dns_status_value" \
     "$($date_command +%s)" >"$dns_status_temporary" || {
     rm -f -- "$dns_status_temporary"
+    journal_status_fallback "$dns_status_result" "$dns_status_component" \
+      "$dns_status_check" status-write-failed 1
     return 0
   }
-  chmod 0644 "$dns_status_temporary" || return 0
-  mv -fT -- "$dns_status_temporary" "$status_file" || return 0
+  if ! chmod 0644 "$dns_status_temporary" ||
+    ! mv -fT -- "$dns_status_temporary" "$status_file"; then
+    rm -f -- "$dns_status_temporary"
+    journal_status_fallback "$dns_status_result" "$dns_status_component" \
+      "$dns_status_check" status-commit-failed 1
+    return 0
+  fi
+  status_recorded=true
 }
+
+# Invoked indirectly by the EXIT trap below.
+# shellcheck disable=SC2317
+record_unclassified_exit() {
+  local dns_exit_status=$1
+
+  trap - EXIT
+  if [[ -n "${capture_root:-}" && "$capture_root" = /tmp/check-dns.* &&
+    -d "$capture_root" && ! -L "$capture_root" ]]; then
+    rm -rf -- "$capture_root" || true
+  fi
+  if [[ "$dns_exit_status" -ne 0 && "$status_recorded" != true ]]; then
+    write_status failed 'Pi-hole FTL and Unbound' internal-error \
+      unclassified-helper-exit 'not applicable' "exit=$dns_exit_status"
+  fi
+  exit "$dns_exit_status"
+}
+
+trap 'record_unclassified_exit "$?"' EXIT
 
 check_service() {
   "$systemctl_command" is-active --quiet "$1"
@@ -69,7 +118,6 @@ fi
 
 capture_root=$(mktemp -d /tmp/check-dns.XXXXXX)
 readonly capture_root
-trap 'rm -rf -- "$capture_root"' EXIT
 
 declare -a pids=()
 declare -a labels=()
