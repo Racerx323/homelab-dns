@@ -12,6 +12,7 @@ readonly status_file=${DNS_CHECK_STATUS_FILE:-/run/caddy-serving-health/dns/stat
 readonly date_command=${DNS_CHECK_DATE_COMMAND:-/usr/bin/date}
 readonly logger_command=${DNS_CHECK_LOGGER_COMMAND:-/usr/bin/logger}
 status_recorded=false
+current_phase=startup
 
 journal_status_fallback() {
   local dns_status_result=$1
@@ -66,7 +67,7 @@ write_status() {
 
 # Invoked indirectly by the EXIT trap below.
 # shellcheck disable=SC2317
-record_unclassified_exit() {
+record_phase_exit() {
   local dns_exit_status=$1
 
   trap - EXIT
@@ -75,13 +76,14 @@ record_unclassified_exit() {
     rm -rf -- "$capture_root" || true
   fi
   if [[ "$dns_exit_status" -ne 0 && "$status_recorded" != true ]]; then
-    write_status failed 'Pi-hole FTL and Unbound' internal-error \
-      unclassified-helper-exit 'not applicable' "exit=$dns_exit_status"
+    write_status failed 'Pi-hole FTL and Unbound' "$current_phase" \
+      phase-operation-failed 'not applicable' \
+      "phase=$current_phase exit=$dns_exit_status"
   fi
   exit "$dns_exit_status"
 }
 
-trap 'record_unclassified_exit "$?"' EXIT
+trap 'record_phase_exit "$?"' EXIT
 
 check_service() {
   "$systemctl_command" is-active --quiet "$1"
@@ -105,22 +107,26 @@ check_answer() {
   grep -Fxq -- "$dns_check_expected" "$dns_check_output"
 }
 
+current_phase=pihole-service
 if ! check_service pihole-FTL.service; then
   write_status failed 'Pi-hole FTL' systemd-service service-inactive \
     'loopback port 53' 'unit=pihole-FTL.service state=inactive'
   exit 1
 fi
+current_phase=unbound-service
 if ! check_service unbound.service; then
   write_status failed Unbound systemd-service service-inactive \
     'loopback port 5335' 'unit=unbound.service state=inactive'
   exit 1
 fi
 
+current_phase=capture-create
 capture_root=$(mktemp -d /tmp/check-dns.XXXXXX)
 readonly capture_root
 
 declare -a pids=()
 declare -a labels=()
+current_phase=probe-launch
 for dns_check_server in 127.0.0.1 ::1; do
   for dns_check_port in 53 5335; do
     for dns_check_type in A AAAA; do
@@ -137,12 +143,14 @@ for dns_check_server in 127.0.0.1 ::1; do
 done
 
 dns_check_failed=0
+current_phase=probe-wait
 for dns_check_index in "${!pids[@]}"; do
   if ! wait "${pids[$dns_check_index]}"; then
     dns_check_failed=1
   fi
 done
 
+current_phase=probe-evidence-read
 for dns_check_label in "${labels[@]}"; do
   dns_check_status=$(<"$capture_root/$dns_check_label.status")
   dns_check_answer=invalid
@@ -153,11 +161,14 @@ for dns_check_label in "${labels[@]}"; do
       dns_check_answer=$dns_check_observed
     fi
   fi
+  current_phase=probe-evidence-output
   printf 'check=%s status=%s answer=%s\n' \
     "$dns_check_label" "$dns_check_status" "$dns_check_answer"
+  current_phase=probe-evidence-read
 done
 
 if [[ "$dns_check_failed" -ne 0 ]]; then
+  current_phase=probe-failure-classification
   dns_failed_label=unknown
   dns_failed_status=unknown
   for dns_check_label in "${labels[@]}"; do
@@ -187,8 +198,10 @@ if [[ "$dns_check_failed" -ne 0 ]]; then
   exit 1
 fi
 
+current_phase=status-healthy
 write_status healthy 'Pi-hole FTL and Unbound' local-answer none \
   'IPv4 and IPv6 over 127.0.0.1 and ::1 ports 53 and 5335' \
   'all eight answers exact'
 
+current_phase=complete
 exit 0
