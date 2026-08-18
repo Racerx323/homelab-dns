@@ -1,207 +1,47 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
+set -u
 set +x
+PATH=/usr/bin:/bin
+export PATH
+readonly PATH
 
 readonly dns_name=pihole.local.theama.co
 readonly expected_ipv4=10.1.0.55
 readonly expected_ipv6=fd36:5aa8:6971:1::55
 readonly dig_command=${DNS_CHECK_DIG_COMMAND:-/usr/bin/dig}
 readonly systemctl_command=${DNS_CHECK_SYSTEMCTL_COMMAND:-/usr/bin/systemctl}
-readonly status_file=${DNS_CHECK_STATUS_FILE:-/run/caddy-serving-health/dns/status}
-readonly date_command=${DNS_CHECK_DATE_COMMAND:-/usr/bin/date}
-readonly logger_command=${DNS_CHECK_LOGGER_COMMAND:-/usr/bin/logger}
-status_recorded=false
-current_phase=startup
 
-journal_status_fallback() {
-  local dns_status_result=$1
-  local dns_status_component=$2
-  local dns_status_check=$3
-  local dns_status_failure_class=$4
-  local dns_status_exit_status=$5
+# Keep SIGTERM at its default disposition; Keepalived signals the full process group.
 
-  "$logger_command" --tag caddy-serving-health --priority daemon.warning -- \
-    "application=DNS component=$dns_status_component check=$dns_status_check result=$dns_status_result failure_class=$dns_status_failure_class exit_status=$dns_status_exit_status status_record=unavailable"
-  status_recorded=true
-}
-
-write_status() {
-  local dns_status_result=$1
-  local dns_status_component=$2
-  local dns_status_check=$3
-  local dns_status_failure_class=$4
-  local dns_status_network=$5
-  local dns_status_value=$6
-  local dns_status_directory=${status_file%/*}
-  local dns_status_temporary
-
-  if [[ ! -d "$dns_status_directory" || -L "$dns_status_directory" ]]; then
-    journal_status_fallback "$dns_status_result" "$dns_status_component" \
-      "$dns_status_check" status-directory-invalid 1
-    return 0
-  fi
-  dns_status_temporary=$(mktemp "$dns_status_directory/.status.XXXXXX") || {
-    journal_status_fallback "$dns_status_result" "$dns_status_component" \
-      "$dns_status_check" status-create-failed 1
-    return 0
-  }
-  printf 'schema=caddy-serving-health-status/v1\napplication=DNS\ncomponent=%s\ncheck=%s\nresult=%s\nfailure_class=%s\nnetwork=%s\nstatus=%s\nobserved_epoch=%s\n' \
-    "$dns_status_component" "$dns_status_check" "$dns_status_result" \
-    "$dns_status_failure_class" "$dns_status_network" "$dns_status_value" \
-    "$($date_command +%s)" >"$dns_status_temporary" || {
-    rm -f -- "$dns_status_temporary"
-    journal_status_fallback "$dns_status_result" "$dns_status_component" \
-      "$dns_status_check" status-write-failed 1
-    return 0
-  }
-  if ! chmod 0644 "$dns_status_temporary" ||
-    ! mv -fT -- "$dns_status_temporary" "$status_file"; then
-    rm -f -- "$dns_status_temporary"
-    journal_status_fallback "$dns_status_result" "$dns_status_component" \
-      "$dns_status_check" status-commit-failed 1
-    return 0
-  fi
-  status_recorded=true
-}
-
-# Invoked indirectly by the EXIT trap below.
-# shellcheck disable=SC2317
-record_phase_exit() {
-  local dns_exit_status=$1
-
-  trap - EXIT
-  if [[ -n "${capture_root:-}" && "$capture_root" = /tmp/check-dns.* &&
-    -d "$capture_root" && ! -L "$capture_root" ]]; then
-    rm -rf -- "$capture_root" || true
-  fi
-  if [[ "$dns_exit_status" -ne 0 && "$status_recorded" != true ]]; then
-    write_status failed 'Pi-hole FTL and Unbound' "$current_phase" \
-      phase-operation-failed 'not applicable' \
-      "phase=$current_phase exit=$dns_exit_status"
-  fi
-  exit "$dns_exit_status"
-}
-
-trap 'record_phase_exit "$?"' EXIT
-
-check_service() {
-  "$systemctl_command" is-active --quiet "$1"
-}
+"$systemctl_command" is-active --quiet pihole-FTL.service || exit 1
+"$systemctl_command" is-active --quiet unbound.service || exit 1
 
 check_answer() {
-  local dns_check_server=$1
-  local dns_check_port=$2
-  local dns_check_type=$3
-  local dns_check_expected=$4
-  local dns_check_output=$5
-  local dns_check_status=$6
+  local health_server=$1
+  local health_port=$2
+  local health_type=$3
+  local health_expected=$4
+  local health_answer
 
-  if "$dig_command" "@$dns_check_server" -p "$dns_check_port" "$dns_name" \
-    "$dns_check_type" +short +time=1 +tries=1 >"$dns_check_output" 2>&1; then
-    printf '0\n' >"$dns_check_status"
-  else
-    printf '%s\n' "$?" >"$dns_check_status"
-  fi
-  [[ "$(wc -l <"$dns_check_output")" -eq 1 ]] || return 1
-  grep -Fxq -- "$dns_check_expected" "$dns_check_output"
+  health_answer=$("$dig_command" "@$health_server" -p "$health_port" \
+    "$dns_name" "$health_type" +short +time=1 +tries=1 2>/dev/null) || return 1
+  [[ "$health_answer" = "$health_expected" ]]
 }
 
-current_phase=pihole-service
-if ! check_service pihole-FTL.service; then
-  write_status failed 'Pi-hole FTL' systemd-service service-inactive \
-    'loopback port 53' 'unit=pihole-FTL.service state=inactive'
-  exit 1
-fi
-current_phase=unbound-service
-if ! check_service unbound.service; then
-  write_status failed Unbound systemd-service service-inactive \
-    'loopback port 5335' 'unit=unbound.service state=inactive'
-  exit 1
-fi
-
-current_phase=capture-create
-capture_root=$(mktemp -d /tmp/check-dns.XXXXXX)
-readonly capture_root
-
-declare -a pids=()
-declare -a labels=()
-current_phase=probe-launch
-for dns_check_server in 127.0.0.1 ::1; do
-  for dns_check_port in 53 5335; do
-    for dns_check_type in A AAAA; do
-      dns_check_expected=$expected_ipv4
-      [[ "$dns_check_type" = A ]] || dns_check_expected=$expected_ipv6
-      dns_check_label=${dns_check_server//[:.]/_}_${dns_check_port}_${dns_check_type}
-      labels+=("$dns_check_label")
-      check_answer "$dns_check_server" "$dns_check_port" "$dns_check_type" \
-        "$dns_check_expected" "$capture_root/$dns_check_label.out" \
-        "$capture_root/$dns_check_label.status" &
-      pids+=("$!")
-    done
+health_pids=()
+for health_server in 127.0.0.1 ::1; do
+  for health_port in 53 5335; do
+    check_answer "$health_server" "$health_port" A "$expected_ipv4" &
+    health_pids+=("$!")
+    check_answer "$health_server" "$health_port" AAAA "$expected_ipv6" &
+    health_pids+=("$!")
   done
 done
 
-dns_check_failed=0
-current_phase=probe-wait
-for dns_check_index in "${!pids[@]}"; do
-  if ! wait "${pids[$dns_check_index]}"; then
-    dns_check_failed=1
-  fi
+health_result=0
+for health_pid in "${health_pids[@]}"; do
+  wait "$health_pid" || health_result=1
 done
 
-current_phase=probe-evidence-read
-for dns_check_label in "${labels[@]}"; do
-  dns_check_status=$(<"$capture_root/$dns_check_label.status")
-  dns_check_answer=invalid
-  if [[ "$(wc -c <"$capture_root/$dns_check_label.out")" -le 64 &&
-  "$(wc -l <"$capture_root/$dns_check_label.out")" -eq 1 ]]; then
-    dns_check_observed=$(<"$capture_root/$dns_check_label.out")
-    if [[ "$dns_check_observed" =~ ^[0-9A-Fa-f:.]+$ ]]; then
-      dns_check_answer=$dns_check_observed
-    fi
-  fi
-  current_phase=probe-evidence-output
-  printf 'check=%s status=%s answer=%s\n' \
-    "$dns_check_label" "$dns_check_status" "$dns_check_answer"
-  current_phase=probe-evidence-read
-done
-
-if [[ "$dns_check_failed" -ne 0 ]]; then
-  current_phase=probe-failure-classification
-  dns_failed_label=unknown
-  dns_failed_status=unknown
-  for dns_check_label in "${labels[@]}"; do
-    dns_check_status=$(<"$capture_root/$dns_check_label.status")
-    dns_check_lines=$(wc -l <"$capture_root/$dns_check_label.out")
-    if [[ "$dns_check_status" != 0 || "$dns_check_lines" -ne 1 ]]; then
-      dns_failed_label=$dns_check_label
-      dns_failed_status=$dns_check_status
-      break
-    fi
-    dns_check_expected=$expected_ipv4
-    [[ "$dns_check_label" = *_AAAA ]] && dns_check_expected=$expected_ipv6
-    if ! grep -Fxq -- "$dns_check_expected" "$capture_root/$dns_check_label.out"; then
-      dns_failed_label=$dns_check_label
-      dns_failed_status=answer-mismatch
-      break
-    fi
-  done
-  dns_failed_component='Pi-hole FTL'
-  [[ "$dns_failed_label" = *_5335_* ]] && dns_failed_component=Unbound
-  dns_failed_family=IPv4
-  [[ "$dns_failed_label" = *_AAAA ]] && dns_failed_family=IPv6
-  dns_failed_class=probe-failed
-  [[ "$dns_failed_status" = answer-mismatch ]] && dns_failed_class=dns-answer-mismatch
-  write_status failed "$dns_failed_component" local-answer "$dns_failed_class" \
-    "$dns_failed_family check=$dns_failed_label" "status=$dns_failed_status"
-  exit 1
-fi
-
-current_phase=status-healthy
-write_status healthy 'Pi-hole FTL and Unbound' local-answer none \
-  'IPv4 and IPv6 over 127.0.0.1 and ::1 ports 53 and 5335' \
-  'all eight answers exact'
-
-current_phase=complete
-exit 0
+exit "$health_result"

@@ -10,8 +10,6 @@ readonly type=${1:-UNKNOWN}
 readonly name=${2:-UNKNOWN}
 readonly state=${3:-UNKNOWN}
 readonly apprise_enqueue=${KEEPALIVED_NOTIFY_ENQUEUE_COMMAND:-/usr/local/libexec/caddy-apprise-enqueue}
-readonly dns_status_file=${KEEPALIVED_NOTIFY_DNS_STATUS_FILE:-/run/caddy-serving-health/dns/status}
-readonly proxy_status_file=${KEEPALIVED_NOTIFY_PROXY_STATUS_FILE:-/run/caddy-serving-health/proxy/status}
 readonly logger_command=${KEEPALIVED_NOTIFY_LOGGER_COMMAND:-/usr/bin/logger}
 readonly date_command=${KEEPALIVED_NOTIFY_DATE_COMMAND:-/usr/bin/date}
 readonly ip_command=${KEEPALIVED_NOTIFY_IP_COMMAND:-/usr/sbin/ip}
@@ -23,33 +21,6 @@ readonly state_root=${KEEPALIVED_NOTIFY_STATE_ROOT:-/run/caddy-serving-health/ke
 [[ "$state" =~ ^[A-Z_]{1,32}$ ]] || exit 0
 
 "$logger_command" -t keepalived-notify "Instance ${name} (${type}) changed to state: ${state}"
-
-snapshot_field() {
-  local snapshot_path=$1
-  local snapshot_key=$2
-
-  sed -n "s/^${snapshot_key}=//p" "$snapshot_path"
-}
-
-snapshot_valid() {
-  local snapshot_path=$1
-  local snapshot_key
-  local snapshot_value
-
-  [[ -f "$snapshot_path" && ! -L "$snapshot_path" ]] || return 1
-  [[ "$(stat -c '%a' "$snapshot_path")" = 644 ]] || return 1
-  [[ "$(wc -l <"$snapshot_path")" -eq 9 ]] || return 1
-  grep -Fxq 'schema=caddy-serving-health-status/v1' "$snapshot_path" || return 1
-  for snapshot_key in application component check result failure_class network status observed_epoch; do
-    [[ "$(grep -c "^${snapshot_key}=" "$snapshot_path")" -eq 1 ]] || return 1
-    snapshot_value=$(snapshot_field "$snapshot_path" "$snapshot_key")
-    [[ -n "$snapshot_value" && ${#snapshot_value} -le 256 ]] || return 1
-    printf '%s' "$snapshot_value" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || return 1
-    jq -en --arg value "$snapshot_value" '$value | test("[[:cntrl:]]") | not' >/dev/null || return 1
-  done
-  [[ "$(snapshot_field "$snapshot_path" result)" =~ ^(healthy|failed)$ ]] || return 1
-  [[ "$(snapshot_field "$snapshot_path" observed_epoch)" =~ ^[0-9]{10}$ ]] || return 1
-}
 
 short_hostname=$("$hostname_command" -s 2>/dev/null || printf unknown)
 local_role=unknown
@@ -126,33 +97,9 @@ case "$state" in
     severity=failure
     event_name=failure
     impact='Node is ineligible; coupled DNS and Proxy VIPs must move to the healthy peer'
-    failure_class=serving-health-failed
+    failure_class=eligibility-fault-unclassified
     failover_occurred=pending-peer-convergence
-    newest_snapshot=
-    newest_epoch=0
-    for snapshot_path in "$dns_status_file" "$proxy_status_file"; do
-      snapshot_valid "$snapshot_path" || continue
-      [[ "$(snapshot_field "$snapshot_path" result)" = failed ]] || continue
-      snapshot_epoch=$(snapshot_field "$snapshot_path" observed_epoch)
-      if ((snapshot_epoch >= newest_epoch)); then
-        newest_epoch=$snapshot_epoch
-        newest_snapshot=$snapshot_path
-      fi
-    done
-    if [[ -n "$newest_snapshot" ]]; then
-      application=$(snapshot_field "$newest_snapshot" application)
-      component=$(snapshot_field "$newest_snapshot" component)
-      check_name=$(snapshot_field "$newest_snapshot" check)
-      failure_class=$(snapshot_field "$newest_snapshot" failure_class)
-      network_context=$(snapshot_field "$newest_snapshot" network)
-      bounded_status=$(snapshot_field "$newest_snapshot" status)
-      case "$application" in
-        DNS) first_check='sudo -u pi /etc/scripts/check-dns.sh' ;;
-        Proxy) first_check='sudo -u keepalived_script /usr/local/libexec/check-caddy.sh' ;;
-      esac
-    else
-      failure_class=eligibility-fault-unclassified
-    fi
+    first_check='journalctl -u keepalived.service -n 50 --no-pager'
     ;;
 esac
 

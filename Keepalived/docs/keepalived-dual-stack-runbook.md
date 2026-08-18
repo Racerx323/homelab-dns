@@ -48,6 +48,14 @@ Other required addresses:
 - `preempt_delay 10` prevents immediate failback to a recovered preferred node.
 - `check-dns` is an unweighted sync-group tracker. Three consecutive failures
   put the entire group into `FAULT`; three successes recover it.
+- `check-dns` is silent and bounded: exit `0` means both services and all eight
+  node-local A/AAAA checks passed. The eight one-second DNS queries share one
+  process group and run concurrently so the full probe stays within the
+  two-second Keepalived limit. It creates no status file, temporary result tree,
+  handler, or diagnostic output.
+- Tracking scripts retain the default `SIGTERM` disposition. Keepalived sends
+  timeout and parent-death termination to the script process group and owns
+  collection of the resulting exit or signal status.
 - Each instance uses `track_src_ip` so loss of its stable source address causes
   a fault.
 - The VRRP instance interface is inherently tracked by Keepalived. Do not add
