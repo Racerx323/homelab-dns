@@ -14,8 +14,8 @@ readonly systemctl_command=${DNS_CHECK_SYSTEMCTL_COMMAND:-/usr/bin/systemctl}
 
 # Keep SIGTERM at its default disposition; Keepalived signals the full process group.
 
-"$systemctl_command" is-active --quiet pihole-FTL.service || exit 1
-"$systemctl_command" is-active --quiet unbound.service || exit 1
+"$systemctl_command" is-active --quiet pihole-FTL.service || exit 10
+"$systemctl_command" is-active --quiet unbound.service || exit 11
 
 check_answer() {
   local health_server=$1
@@ -30,18 +30,26 @@ check_answer() {
 }
 
 health_pids=()
+health_codes=()
+health_code=20
 for health_server in 127.0.0.1 ::1; do
   for health_port in 53 5335; do
     check_answer "$health_server" "$health_port" A "$expected_ipv4" &
     health_pids+=("$!")
+    health_codes+=("$health_code")
+    health_code=$((health_code + 1))
     check_answer "$health_server" "$health_port" AAAA "$expected_ipv6" &
     health_pids+=("$!")
+    health_codes+=("$health_code")
+    health_code=$((health_code + 1))
   done
 done
 
 health_result=0
-for health_pid in "${health_pids[@]}"; do
-  wait "$health_pid" || health_result=1
+for health_index in "${!health_pids[@]}"; do
+  if ! wait "${health_pids[$health_index]}" && [[ "$health_result" -eq 0 ]]; then
+    health_result=${health_codes[$health_index]}
+  fi
 done
 
 exit "$health_result"
