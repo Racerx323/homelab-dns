@@ -270,15 +270,20 @@ If reverse lookup for the Pi-hole VIP returns `pi.hole.`:
 - Pi-hole may be answering its own address before forwarding.
 - This is usually cosmetic unless a service requires a specific PTR for the VIP.
 
-## Public Repo Note
+## Repository Publishing Policy
 
-For public repositories, keep real node-specific Pi-hole/Unbound configs ignored and publish only sanitized examples.
+The sanitized examples remain the reusable public templates. This repository
+also deliberately tracks the reviewed production pair so the accepted
+Pi-hole/Unbound deployment can be reproduced from Git. These production files
+contain internal DNS inventory, but they must never contain credentials,
+private keys, API tokens, or other secrets. Other node-specific
+`pihole*.conf` variants remain ignored.
 
-Recommended pattern:
+Tracked configuration:
 
 ```text
 Unbound/configs/example.conf             # resolver behavior
 Unbound/configs/example-local-zone.conf  # local DNS policy and records
-Unbound/configs/pihole.conf              # ignored
-Unbound/configs/pihole-local-zone.conf   # ignored
+Unbound/configs/pihole.conf              # accepted production resolver behavior
+Unbound/configs/pihole-local-zone.conf   # accepted production local DNS data
 ```

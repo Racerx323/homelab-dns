@@ -4,9 +4,10 @@
 *.log
 *.pid
 
-# Keep live node-specific Unbound configs private; publish sanitized examples.
+# Track the reviewed production pair; ignore other node-specific Unbound variants.
 Unbound/configs/pihole*.conf
-!Unbound/configs/example.conf
+!Unbound/configs/pihole.conf
+!Unbound/configs/pihole-local-zone.conf
 
 # Unbound packaging outputs (source inputs remain tracked).
 Unbound/packaging/work/
