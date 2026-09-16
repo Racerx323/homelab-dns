@@ -1,5 +1,8 @@
 # msmtp secrets configuration
 
+For the follow-on fleet review, use the
+[audit and standardization planning prompt](FLEET_AUDIT_STANDARDIZATION_PROMPT.md).
+
 This guide explains how to remove an SMTP password from the system-wide
 `/etc/msmtprc` file on Debian 12. The password is stored in a separate file and
 read at runtime with the msmtp `passwordeval` directive.
