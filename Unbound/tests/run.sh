@@ -86,4 +86,6 @@ else
   printf 'SKIP: unbound-checkconf is not installed on this development host.\n'
 fi
 
+PYTHONDONTWRITEBYTECODE=1 python3 "$unbound_root/tests/test_host_records.py"
+
 printf 'All repository tests passed.\n'

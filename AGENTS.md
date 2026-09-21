@@ -104,3 +104,21 @@ Intent auto-detection, hybrid ranking, session memory, auto-expanding budget.
 ### Multi-Repo
 `run_pipeline` auto-queries all indexed repos. Use `repos: ["alias"]` to scope. Run `index_status` to see aliases.
 <!-- /vexp -->
+
+## Unbound local-zone changes
+
+- After **any deployed change to Unbound local-zone configuration**, restart
+  Pi-hole DNS on the same node after successful Unbound validation and reload.
+  This includes record additions, edits, deletions and rollback restoration.
+- Include the Pi-hole DNS restart in the reviewed deployment/rollback scope;
+  it is required even when direct Unbound queries already return correct data.
+  Do not treat an Unbound reload alone as completion.
+- On the installed Pi-hole v5 nodes use `sudo pihole restartdns`. For other
+  versions, verify the supported full DNS-service restart command before use;
+  a cache-only or list-only reload does not satisfy this policy.
+- For HA, operate one node at a time, non-VIP owner first. Validate Unbound,
+  Pi-hole and Keepalived health, unchanged VIP ownership and exact forward/reverse
+  DNS over IPv4 and IPv6 before proceeding. Finish with both node and VIP checks.
+- Repository-only edits do not authorize live restarts. Frozen historical bundles
+  remain immutable; future bundles must explicitly include this requirement.
+  See [host-record deployment](Unbound/docs/host-record-deployment.md).

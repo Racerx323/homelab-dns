@@ -78,3 +78,7 @@ required source-model check.
 - [NLnet Labs Unbound documentation](https://unbound.docs.nlnetlabs.nl/)
 - [Pi-hole Unbound guide](https://docs.pi-hole.net/guides/dns/unbound/)
 - [Pi-hole v6 configuration reference](https://docs.pi-hole.net/ftldns/configfile/)
+
+## Host record changes
+
+- [Host DNS record deployment](host-record-deployment.md): record-only HA validation, authorization and exact rollback.

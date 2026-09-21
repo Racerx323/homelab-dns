@@ -182,6 +182,7 @@ sudo install -o root -g root -m 0644 \
 
 sudo unbound-checkconf /etc/unbound/unbound.conf
 sudo unbound-control reload
+sudo pihole restartdns
 ```
 
 Replace the example domain, hostnames, and addresses before installing these
@@ -287,3 +288,14 @@ Unbound/configs/example-local-zone.conf  # local DNS policy and records
 Unbound/configs/pihole.conf              # accepted production resolver behavior
 Unbound/configs/pihole-local-zone.conf   # accepted production local DNS data
 ```
+
+## Required restart after local-zone changes
+
+[Repository policy](../../AGENTS.md#unbound-local-zone-changes) requires a Pi-hole
+DNS restart on each changed node after every deployed Unbound local-zone change,
+including rollback. Validate/reload Unbound first, then restart Pi-hole DNS and
+verify forward/reverse answers over IPv4 and IPv6. `sudo pihole restartdns` is
+for Pi-hole v5; verify the supported full service restart for other versions.
+Include this in the authorized operation and follow the
+[serial HA deployment procedure](host-record-deployment.md). A cache-only reload
+or successful direct Unbound query does not replace the required restart.
