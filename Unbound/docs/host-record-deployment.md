@@ -232,7 +232,8 @@ cursor window. These samples do not claim uninterrupted service during restart.
 Exact rollback backups remain in `/var/backups/nautobot-host-dns-20260921-retry1`
 on both nodes; the earlier secondary backup is also retained. Future rollback
 must account for positive Pi-hole/client caches and separately scope cache action.
-Do not replay the consumed bundle. No commit, push or backup cleanup was performed.
+Do not replay the consumed bundle. Terminal Git publication is recorded in [Unbound history](../HISTORY.md).
+Remote backup cleanup has not been performed.
 Nautobot stage-4 acceptance remains a separate review.
 
 Private result and evidence index:
