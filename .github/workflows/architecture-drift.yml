@@ -19,6 +19,7 @@ jobs:
       github.actor != 'dependabot[bot]' &&
       !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Compare DNS changes with the canonical LikeC4 model
