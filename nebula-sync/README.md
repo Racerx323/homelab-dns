@@ -131,12 +131,10 @@ bash -n scripts/install.sh
 bash -n scripts/build.sh
 ```
 
-For Bash static analysis and Bash Coding Standard compliance:
+For Bash static analysis:
 
 ```bash
 shellcheck -x scripts/install.sh scripts/build.sh
-bcs check scripts/install.sh
-bcs check scripts/build.sh
 ```
 
 For tests:
