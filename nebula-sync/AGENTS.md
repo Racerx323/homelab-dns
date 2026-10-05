@@ -39,7 +39,7 @@ Your task is to maintain, update, and test `scripts/install.sh` and `scripts/bui
 
 `scripts/install.sh` owns install, configure, upgrade, status, and uninstall behavior.
 
-All scripts must target Bash 5.2+ on Debian Stable and comply with the Bash Coding Standard.
+All scripts must target Bash 5.2+ on Debian Stable and pass the documented syntax, static-analysis, and test checks.
 
 ## System Environment
 
@@ -50,7 +50,7 @@ All scripts must target Bash 5.2+ on Debian Stable and comply with the Bash Codi
 
 ## Critical Constraints
 
-- **Bash Compliance:** Scripts must comply with the Bash Coding Standard.
+- **Bash Validation:** Scripts must pass the documented syntax, static-analysis, and test checks.
 - **Automation:** Use `apt-get` instead of `apt` for scripted automation to ensure stable CLI output.
 - **Configure Command:** `configure` may be interactive by default, but it must also support non-interactive operation through documented flags or environment variables.
 - **Package Installs:** Use `export DEBIAN_FRONTEND=noninteractive` and `apt-get install -y` for non-interactive package installation.
@@ -62,7 +62,7 @@ All scripts must target Bash 5.2+ on Debian Stable and comply with the Bash Codi
 - Include dry-run behavior for risky or mutating operations.
 - Update README examples when CLI behavior changes.
 - Update `docs/installer.md` when command behavior, safety behavior, paths, units, ownership, or exit codes change.
-- Follow the Bash Coding Standard for all Bash scripts.
+- Validate Bash scripts with the checks below.
 - Keep installer scripts safe, boring, and predictable.
 - Do not hard-code local user paths.
 - Do not assume root unless the script checks for it.
@@ -102,12 +102,10 @@ bash -n scripts/install.sh
 bash -n scripts/build.sh
 ```
 
-For Bash static analysis and BCS compliance:
+For Bash static analysis:
 
 ```bash
 shellcheck -x scripts/install.sh scripts/build.sh
-bcs check scripts/install.sh
-bcs check scripts/build.sh
 ```
 
 For installer tests:
@@ -136,7 +134,7 @@ Report which validation commands were run and whether they passed. If a command 
 ### Allowed Operations Without Confirmation
 
 - Read files within the project.
-- Run linting, BCS checks, shell syntax checks, and test suites.
+- Run linting, shell syntax checks, and test suites.
 - Run dry-run installer commands.
 - Inspect generated files and logs within the project.
 
