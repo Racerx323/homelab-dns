@@ -176,17 +176,18 @@ sudo install -o root -g root -m 0644 \
   Unbound/configs/example.conf \
   /etc/unbound/unbound.conf.d/pihole.conf
 
-sudo install -o root -g root -m 0644 \
-  Unbound/configs/example-local-zone.conf \
-  /etc/unbound/unbound.conf.d/local-zone.conf
+# Apply the reviewed local-zone candidate by the atomic replacement procedure
+# linked below; do not write an active zone file in place.
 
 sudo unbound-checkconf /etc/unbound/unbound.conf
-sudo unbound-control reload
+sudo systemctl restart unbound.service
 sudo pihole restartdns
 ```
 
 Replace the example domain, hostnames, and addresses before installing these
-files on production nodes. Keep both files synchronized across HA nodes.
+files on production nodes. Deploy reviewed files independently on both HA nodes; local-zone synchronization
+is not implemented. Production updates require the atomic staging/rename,
+validation, backup and serial HA gates in the deployment procedure below.
 
 ## Validation Commands
 
@@ -291,11 +292,17 @@ Unbound/configs/pihole-local-zone.conf   # accepted production local DNS data
 
 ## Required restart after local-zone changes
 
-[Repository policy](../../AGENTS.md#unbound-local-zone-changes) requires a Pi-hole
-DNS restart on each changed node after every deployed Unbound local-zone change,
-including rollback. Validate/reload Unbound first, then restart Pi-hole DNS and
-verify forward/reverse answers over IPv4 and IPv6. `sudo pihole restartdns` is
-for Pi-hole v5; verify the supported full service restart for other versions.
-Include this in the authorized operation and follow the
-[serial HA deployment procedure](host-record-deployment.md). A cache-only reload
-or successful direct Unbound query does not replace the required restart.
+[Repository policy](../../AGENTS.md#unbound-local-zone-changes) requires atomic
+local-zone replacement followed by validation, a full Unbound restart and a full
+Pi-hole DNS restart on each changed node, including rollback. Use
+`sudo systemctl restart unbound.service`, establish healthy Unbound, then
+`sudo pihole restartdns` for installed Pi-hole v5. Verify the equivalent full
+restart for other versions. Neither a reload nor a correct direct Unbound answer
+replaces these restarts.
+
+Operate one node at a time, current non-VIP owner first, while its peer is healthy
+and serving. Permit cluster-driven failover within the reviewed convergence
+window; verify coherent VIP ownership and exact IPv4/IPv6 answers before
+progressing. Caddy synchronization is separate; Unbound local-zone files are
+updated independently. Include writes, both restarts and recovery in the reviewed
+operation under the [serial HA deployment procedure](host-record-deployment.md).

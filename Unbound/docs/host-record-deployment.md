@@ -1,5 +1,28 @@
 # Host DNS record deployment
 
+The [NTP1 IPv6 prerequisite review](ntp1-ipv6-prerequisite-review.md) defines an
+independent two-record candidate required before the svmf network successor.
+Its read-only readiness and deployment need separate exact-hash bundles; do not
+combine it with pending Munin/svmf changes or reuse historical node baselines.
+
+The [Munin/svmf dual-stack review](munin-host-record-review.md) executed and
+passed October 21 at 10:12:30 CDT: three append-only records, .54 accepted before
+.53, both full DNS restarts per node, and final paired DNS/Caddy acceptance.
+Backups remain and all five phase receipts are consumed. Further DNS changes
+need a new exact-hash operation. Monitoring acceptance remains separate.
+
+## NTP-only deployment accepted — October 21, 2026
+
+The [NTP prerequisite review](ntp1-ipv6-prerequisite-review.md#deployment-accepted--october-21-2026)
+records successful .54-first/.53-second atomic updates and full Unbound/Pi-hole
+restarts under archive SHA-256
+`54224a0beac93bc715a8af42ce39b673a7b14f18ac300e1524f714364f03d545`.
+All exact NTP DNS and paired DNS/Caddy health gates passed. Both nodes serve AAAA
+::51 and its canonical IPv6 PTR; preserved IPv4 and unrelated local checks passed.
+All retained samples show the four-VIP group on .53. No rollback or forced
+failover occurred. Backups/durable state remain; receipts are consumed. This
+accepts the NTP record change, not later Munin/svmf records or all Phase 5 DNS.
+
 ## Prepared change: Nautobot host
 
 Status: deployed and verified on both nodes on September 21, 2026. All 24
@@ -26,23 +49,43 @@ The complete acceptance matrix is in the consumer's
 [stage-4 roadmap](../../../homelab-server-configs/Nautobot/docs/ROADMAP.md#dns-acceptance-matrix).
 This document owns the DNS deployment boundary, not Nautobot acceptance.
 
+## Current local-zone update contract
+
+Operator clarification, October 20, 2026: Unbound local-zone synchronization is
+not implemented. Caddy replication on these nodes is separate. Install the
+reviewed local-zone file independently on each node using atomic replacement,
+then validate and fully restart Unbound followed by Pi-hole DNS. Both full
+restarts also apply to rollback. Earlier operation outcomes and frozen bundles
+below are historical; they do not authorize or implement this revised contract.
+
+Cluster-driven failover during a node update is permitted within the reviewed
+convergence window. Require the other node healthy and serving before the update,
+then recheck both nodes and coherent ownership of all four linked DNS/Proxy
+VIPs before progressing. PIHOLE_DUALSTACK moves DNS .55/::55 and Proxy .56/::56
+together; Caddy fails over with DNS. Include brief Caddy service and verified-TLS
+proxy health checks, without Caddy configuration/restart or sync changes.
+Do not require ownership to remain on its initial node. Persistent split,
+duplicate or missing ownership and lost baseline DNS service stop progression.
+No forced Keepalived transition or Caddy synchronization change is included.
+
 ## Deployment readiness
 
 Before requesting the separate live change, preserve a bounded, read-only
 snapshot of both nodes' current local-zone file, file owner/group/mode and hash,
 active main configuration/include graph, Unbound binary/version and effective
-service/reload configuration. Capture the journal cursor and current health on
+service/restart configuration. Capture the journal cursor and current health on
 each node. Use `pi` with existing SSH credentials and strict host-key verification.
 Do not collect control private keys or unrestricted configuration archives.
 
-Confirm which node currently owns both DNS VIPs and whether configuration
-synchronization watches the destination. Names and HA preference do not prove
-active role. Mixed VIP ownership, automatic propagation that defeats serial
-validation, or unrelated source/live differences stop readiness for review.
-Do not disable synchronization or move VIPs under a record-only change.
+Confirm which node currently owns both DNS VIPs and that the peer is healthy
+and serving. Names and HA preference do not prove active role. The operator
+confirms no Unbound local-zone synchronization; do not require Caddy synchronization
+qualification or disable its jobs for this update. Mixed initial VIP ownership
+or unrelated source/live drift stops readiness. Record normal failover rather
+than pinning the initial owner; do not force VIP movement.
 
 Compare both deployed fragments with the candidate's parent version. Require
-that the proposed per-node diff adds only the four reviewed records. Preserve
+that the proposed per-node diff adds only the operation's reviewed records. Preserve
 unrelated records; never overwrite live drift with the repository file. Conflicting
 forward or reverse records in any effective include stop deployment. Existing
 identical records call for reconciliation rather than duplicate insertion.
@@ -67,42 +110,49 @@ reviewed live scope; do not install packages just to bypass this readiness gap.
 
 After exact-bundle authorization, deploy one node at a time, current non-VIP
 owner first. In the usual topology this is `pi@10.1.0.54`, followed by
-`pi@10.1.0.53`. Stop if actual roles or reviewed hashes changed.
+`pi@10.1.0.53`. Re-evaluate actual roles before each node update. Stop on reviewed file/input
+drift, unhealthy peer or ambiguous roles; coherent cluster-driven failover is
+handled by the reviewed HA gate.
 
 1. Create an exclusive mode-0700 node-local backup directory. Preserve exact
    original bytes and metadata of the one destination file, and record its hash.
-   Keep each node's backup distinct and outside synchronized paths. Recheck that
+   Keep each node's backup distinct and outside active include paths. Recheck that
    the destination is the reviewed regular file, not an unexpected symlink.
 2. Stage the candidate in a non-included path; verify its hash and validate the
-   candidate tree. Match destination ownership/mode. Replace atomically only if
-   the live file still matches its reviewed before hash. Preserve other files.
+   candidate tree. Create the replacement temporary file in the destination
+   directory on the same filesystem, outside its included *.conf names. Write
+   complete candidate bytes, set the reviewed owner/group/mode, flush and fsync
+   the file. Recheck the live before hash/metadata, atomically rename over the
+   destination, then fsync the parent directory. Never truncate/write the active
+   file in place. Preserve other files and retain exact backups.
 3. Validate the effective main configuration after replacement:
    `sudo unbound-checkconf /etc/unbound/unbound.conf`.
    If it fails, restore the backup before any reload.
-4. Use the owner's existing `sudo unbound-control reload` path only after its
-   availability has been verified in readiness. Capture status and bounded
-   cursor-scoped journal output. Do not silently substitute a restart or install
-   control credentials if that path is unavailable.
-5. Restart Pi-hole DNS on the changed node after successful Unbound validation
-   and reload. This is required for every deployed local-zone change, including
-   rollback restoration, by [repository policy](../../AGENTS.md#unbound-local-zone-changes).
-   On the installed v5 nodes use `sudo pihole restartdns`; verify the supported
-   full DNS-service restart command for other versions. Include it explicitly in
-   the reviewed deployment and rollback scope.
-6. Verify active Unbound/Pi-hole/Keepalived services, unchanged VIP ownership,
+4. Fully restart Unbound with `sudo systemctl restart unbound.service` after
+   successful validation. Require healthy running state, loopback listener and
+   direct resolver answers within the reviewed convergence window. Capture status
+   and bounded cursor-scoped journal output. Do not substitute a reload.
+5. Fully restart Pi-hole DNS on that same node after healthy Unbound is established.
+   Use `sudo pihole restartdns` on the installed v5 nodes; verify the equivalent
+   full restart for other versions. Both restarts are mandatory for apply and
+   rollback under [repository policy](../../AGENTS.md#unbound-local-zone-changes).
+6. Verify healthy Unbound/Pi-hole/Keepalived on both nodes and coherent VIP ownership,
    loopback-only Unbound listeners and baseline DNS health. Query all four records
    directly through that node's IPv4 and IPv6 Pi-hole endpoints. Also query its
    loopback Unbound port 5335 to distinguish resolver data from Pi-hole cache.
    Check unrelated existing local records and public resolution against baseline.
 7. Proceed to the second node only after the first node's complete gate passes.
+   Recheck roles and peer readiness. Until both nodes are updated, VIP answers
+   for new records must match the currently serving node's accepted deployment
+   state; pre-existing DNS must remain available throughout the bounded window.
    Then run all 24 consumer queries through both node addresses and both VIPs.
    Confirm exact records and no unexpected aliases or extra addresses.
 
 Pi-hole or client negative caches may retain the earlier NXDOMAIN. Record the
 negative TTL and the deadline before retrying after expiry. A correct direct
 Unbound answer does not waive the Pi-hole/VIP checks. Do not globally flush caches,
-extend the window indefinitely without a reviewed scope. The mandatory Pi-hole
-DNS restart must be included in the reviewed scope; an Unbound reload or
+extend the window indefinitely without a reviewed scope. Both mandatory full service
+restarts must be included in the reviewed scope; an Unbound reload or Pi-hole
 cache-only/list-only reload does not satisfy the restart requirement.
 If the bounded window cannot accommodate expiry, record incomplete validation
 and follow the agreed rollback/hold decision rather than declaring success.
@@ -114,7 +164,7 @@ changing DNS resolution via hosts files is not a DNS acceptance test.
 
 ## Rollback and stop conditions
 
-Any failed reload, service degradation, wrong answer, unexpected VIP movement,
+Any failed restart, service degradation, wrong answer, unconverged VIP ownership,
 unrelated DNS regression or changed input stops progression. Roll back already
 changed nodes in reverse order using their own exact backups. If only the first
 node changed, restore only that node. Do not modify a still-untouched peer.
@@ -122,7 +172,8 @@ node changed, restore only that node. Do not modify a still-untouched peer.
 Before restoring, verify backup hash and destination identity; stop for manual
 review if another writer changed the destination since this operation. Restore
 original bytes/owner/group/mode atomically, validate the full configuration, then
-reload through the same reviewed path, then restart Pi-hole DNS on that node.
+fully restart Unbound, establish its health, then fully restart Pi-hole DNS on
+that node. Accept coherent cluster-driven failover under the same HA gate.
 Verify original file hash, active services,
 VIP ownership and pre-change DNS answers. Retain evidence of both failure and
 rollback; rollback commands returning zero are not sufficient proof.
@@ -145,10 +196,23 @@ acceptance, application deployment, Caddy publication or Restic readiness.
 
 ## Prepared execution helpers
 
+The current repository helpers implement the new atomic-write/two-full-restart
+policy and paired HA gate. [Qualification](zone-transaction-qualification.md)
+passed 29 offline contracts and four native fixture scenarios, including actual
+Unbound/systemd apply, restart failures and reverse recovery. FTL and Keepalived
+are fixture stand-ins; live acceptance remains required. Historical frozen
+bundles and their recorded outcomes are unchanged.
+
+New operations select `atomic-zone-full-restart-v2` and use a fresh paired gate,
+one-use mutation receipts, bound original/candidate DNS expectations, durable
+backups and reverse-order recovery. Current CLI and required inputs are defined
+in the qualification document. Historical invocation examples below do not
+specify the successor's authorization or new inputs.
+
 The reviewed bundle contains copies of `scripts/apply-host-records.py` as
 `node.py`, `scripts/dispatch-host-records.py` as `dispatch.py`, and
 `scripts/verify-host-records.py` as `verify.py`. It also binds the exact candidate,
-per-node metadata/configuration/binary/sync hashes, expanded native-validation
+per-node metadata/configuration/binary hashes, expanded native-validation
 inputs and an ordered execution/rollback procedure. The dispatcher verifies the
 approved SHA-256 index before SSH; it operates on one node only. The operator
 must pass every DNS/service gate before advancing, and restore previously changed
@@ -242,3 +306,9 @@ For future deployments, include the mandatory Pi-hole DNS restart and bounded
 settlement/validation window before authorization. The existing generic helper
 only applies/reloads Unbound; its caller must explicitly execute the required
 restart and service/role/DNS gates. The helper alone is not a complete deployment.
+
+For the NTP-only October 20 execution review, the operator requests no additional
+fixtures, stand-ins or simulated failover testing. Use the retained qualification,
+real sealed-input validation and brief live checks in the approved change.
+The exact pending archive is listed in the
+[NTP prerequisite review](ntp1-ipv6-prerequisite-review.md#sealed-deployment-ready-for-approval).

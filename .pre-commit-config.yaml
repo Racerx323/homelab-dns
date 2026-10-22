@@ -6,6 +6,20 @@ exclude: (?:^|/)(?:\.vexp|\.agents)/
 repos:
   - repo: local
     hooks:
+      - id: host-zone-transaction-offline
+        name: Atomic zone restart and HA transaction contracts
+        entry: python3 -I -B Unbound/tests/test_host_records.py
+        language: system
+        files: ^(?:Unbound/(?:scripts/(?:apply-host-records|dispatch-host-records|verify-host-records)\.py|tests/test_host_records\.py|configs/pihole-local-zone\.conf)|\.pre-commit-config\.yaml$)
+        pass_filenames: false
+
+      - id: ntp-dns-readiness-offline
+        name: Read-only NTP and DNS readiness contracts
+        entry: python3 -I -B Unbound/tests/test_ntp_dns_readiness.py
+        language: system
+        files: ^(?:Unbound/(?:scripts/inspect-ntp-dns-readiness\.py|tests/test_ntp_dns_readiness\.py|configs/pihole-local-zone\.conf)|\.pre-commit-config\.yaml$)
+        pass_filenames: false
+
       - id: shellcheck
         name: ShellCheck
         entry: shellcheck

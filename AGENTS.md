@@ -99,18 +99,33 @@ Repo SOURCE only: logs, dist/, node_modules/ and files outside the repo are NOT 
 
 ## Unbound local-zone changes
 
-- After **any deployed change to Unbound local-zone configuration**, restart
-  Pi-hole DNS on the same node after successful Unbound validation and reload.
-  This includes record additions, edits, deletions and rollback restoration.
-- Include the Pi-hole DNS restart in the reviewed deployment/rollback scope;
-  it is required even when direct Unbound queries already return correct data.
-  Do not treat an Unbound reload alone as completion.
-- On the installed Pi-hole v5 nodes use `sudo pihole restartdns`. For other
-  versions, verify the supported full DNS-service restart command before use;
-  a cache-only or list-only reload does not satisfy this policy.
-- For HA, operate one node at a time, non-VIP owner first. Validate Unbound,
-  Pi-hole and Keepalived health, unchanged VIP ownership and exact forward/reverse
-  DNS over IPv4 and IPv6 before proceeding. Finish with both node and VIP checks.
-- Repository-only edits do not authorize live restarts. Frozen historical bundles
-  remain immutable; future bundles must explicitly include this requirement.
-  See [host-record deployment](Unbound/docs/host-record-deployment.md).
+- Unbound local-zone synchronization is not implemented. Deploy the reviewed
+  file independently to each node with an atomic replacement; Caddy replication
+  is a separate concern and is not a DNS-zone deployment prerequisite.
+- After **any deployed change to Unbound local-zone configuration**, validate
+  the effective configuration, fully restart Unbound, then fully restart Pi-hole
+  DNS on the same node. This includes additions, edits, deletions and rollback
+  restoration. Include both restarts in the reviewed scope; reloads alone or
+  correct direct Unbound answers do not satisfy this requirement.
+- Use `sudo systemctl restart unbound.service`, require healthy Unbound, then
+  `sudo pihole restartdns` on the installed Pi-hole v5 nodes. For other versions,
+  verify the supported full DNS-service restart command before use; cache-only
+  or list-only reloads are insufficient.
+- For HA, operate one node at a time, current non-VIP owner first, with the peer
+  healthy and serving. Permit cluster-driven failover during the update under
+  the reviewed convergence window. Before progressing require a healthy pair,
+  coherent ownership of all four linked DNS/Proxy VIPs by one healthy node, healthy
+  Caddy and exact IPv4/IPv6 DNS answers. PIHOLE_DUALSTACK moves DNS .55/::55
+  and Proxy .56/::56 together; do not model independent DNS-only failover.
+  Persistent split/duplicate/missing linked VIP ownership or loss of baseline DNS service
+  stops progression. Do not force failover or modify Keepalived/Caddy as part of
+  a record-only update. Finish with both node and VIP checks.
+- Repository edits do not authorize live changes. Frozen historical bundles
+  remain immutable; future bundles must include this atomic-write, two-restart
+  and HA acceptance policy. See
+  [host-record deployment](Unbound/docs/host-record-deployment.md).
+
+- For this DNS rollout, do not build additional fixtures, stand-ins or simulated
+  failover tests. Retain prior qualification and use brief live service/DNS/HTTPS
+  checks in the separately approved execution scope. Caddy can move with the
+  linked Keepalived group; its configuration and synchronization remain unchanged.

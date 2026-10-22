@@ -11,6 +11,18 @@ permissions:
   contents: read
 
 jobs:
+  host-zone-transaction:
+    name: Atomic zone restart and HA transaction contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 -I -B Unbound/tests/test_host_records.py
+  ntp-dns-readiness:
+    name: Read-only NTP and DNS readiness contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 -I -B Unbound/tests/test_ntp_dns_readiness.py
   baseline:
     name: Baseline validation
     uses: >-

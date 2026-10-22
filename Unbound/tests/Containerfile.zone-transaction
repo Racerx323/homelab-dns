@@ -1,0 +1,5 @@
+FROM localhost/svmf-network-https:bookworm
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends unbound dnsutils dnsmasq-base iproute2 && rm -rf /var/lib/apt/lists/*
+RUN systemctl mask NetworkManager.service apache2.service ssh.service systemd-resolved.service unbound.service && systemctl unmask unbound.service
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
