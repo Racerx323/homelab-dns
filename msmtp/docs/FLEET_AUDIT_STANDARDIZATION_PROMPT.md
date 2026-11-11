@@ -53,13 +53,14 @@ Do not infer live audit authorization from the earlier single-host repair.
    recipient, SMTP endpoint and intended final destination. Test cases must
    distinguish email delivery from Apprise notification delivery.
 
-4. Resolve account-selection/alias interactions before deployment. The current
-   template selects `mailgun` by default while the alias template maps `root`
-   to `notify@mailrise.xyz`. A recipient alias does not select an SMTP account.
-   Establish the intended effective route for each consumer; do not assume
-   copying both files makes every root-run sender use Mailrise. Propose explicit
-   account selection or reviewed profile differences where needed, preserving
-   intended external email and notification behavior.
+4. Resolve account-selection/alias interactions before deployment. The repository desired default is the `apprise` account pointing to Mailrise;
+   `root` and unmatched local-recipient aliases use `notify@mailrise.xyz`.
+   This was selected by Aaron on November 10, 2026; it is not a fleet deployment
+   claim. A recipient alias does not select an SMTP account. Inspect existing
+   hosts for older Mailgun defaults before migration. External email must select
+   `mailgun` explicitly; preserve that account and its protected secret reference.
+   Establish and verify each consumer's effective route, including per-user
+   overrides, rather than assuming the owner template is deployed.
 
 5. Define reusable configuration profiles and explicit per-host selection.
    Keep shared implementation in this component and consumer policy with its

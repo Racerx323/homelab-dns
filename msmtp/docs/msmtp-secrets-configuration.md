@@ -17,6 +17,15 @@ Separating the password has two benefits:
 This approach protects the password with Unix ownership and permissions. It
 does not encrypt the password at rest. Root can still read the secret.
 
+## Fleet default route
+
+The owner template selects `account default: apprise`, the Mailrise account at
+`mailrise.local.theama.co:8025`. Root and unmatched local-recipient aliases use
+`notify@mailrise.xyz`. Mailgun remains available by explicit `--account=mailgun`
+selection for external email; changing its password does not change the default
+account. Existing host defaults must be inspected before migration. Repository
+configuration is desired state, not evidence that any host has been changed.
+
 ## Automated setup
 
 The repository includes a Debian 12 helper that performs the password prompt,
