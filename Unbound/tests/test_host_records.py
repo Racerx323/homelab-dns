@@ -10,8 +10,10 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import time
+import traceback
 import unittest
 from unittest.mock import patch
 
@@ -188,18 +190,18 @@ class Restart(unittest.TestCase):
 
 
 class Transactions(unittest.TestCase):
-    def run_transaction(self, failure=None, recovery_failure=False, interruption=False):
+    def run_transaction(self, failure=None, recovery_failure=False, interruption=False, boot_change=False, admission=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); dest = root/'live.conf'; dest.write_bytes(b'old'); dest.chmod(0o644)
             backup = root/'backup'; before = {'sha256': m.sha(b'old'), 'uid': os.getuid(), 'gid': os.getgid(), 'mode': 0o644}
             node = {'hostname': 'fixture', 'boot_id': 'fixture-boot', 'backup_directory': str(backup), 'binaries': {},
                     'files': {str(dest): before, '/etc/unbound/unbound.conf': {'sha256': 'unused'}},
                     'expanded_sha256': m.sha(b'expanded'), 'before_checks': checks(), 'candidate_checks': checks()}
-            op = {'policy': m.POLICY, 'target_path': str(dest), 'candidate_sha256': m.sha(b'new'), 'nodes': {'secondary': node}}
+            op = {'policy': m.POLICY, 'boot_policy': m.BOOT_POLICY, 'target_path': str(dest), 'candidate_sha256': m.sha(b'new'), 'nodes': {'secondary': node}}
             payload = {'operation': op, 'node': 'secondary', 'phase': 'apply', 'candidate': base64.b64encode(b'new').decode(), 'expanded': base64.b64encode(b'expanded').decode()}
             verify = m.verify_file; original_read = Path.read_text; restarts = []; commands = []; states = []
             def read(path, *args, **kwargs):
-                return 'fixture-boot' if str(path) == '/proc/sys/kernel/random/boot_id' else original_read(path, *args, **kwargs)
+                return ('new-boot' if boot_change else 'fixture-boot') if str(path) == '/proc/sys/kernel/random/boot_id' else original_read(path, *args, **kwargs)
             def cmd(argv, **kwargs):
                 commands.append(argv)
                 if argv == ['hostname']: return 'fixture'
@@ -217,6 +219,21 @@ class Transactions(unittest.TestCase):
                 m.install(path/'state.json', (json.dumps(value)+'\n').encode(), os.getuid(), os.getgid(), 0o600)
                 states.append(value['phase'])
             with patch.object(m.os, 'geteuid', return_value=0), patch.object(Path, 'read_text', read), patch.object(Path, 'glob', return_value=[dest]), patch.object(m, 'verify_file', side_effect=lambda p, h: b'' if str(p) == '/etc/unbound/unbound.conf' else verify(p, h)), patch.object(m, 'command', side_effect=cmd), patch.object(m.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')), patch.object(m, 'health'), patch.object(m, 'backup_check'), patch.object(m, 'state_write', side_effect=state), patch.object(m, 'restart_services', side_effect=restart), patch.object(m, 'event'):
+                if admission:
+                    node['boot_id'] = None
+                    payload.update(phase='inspect', expected_state='before')
+                    with patch.object(m, 'inspect_node', side_effect=lambda admitted, *args: admitted['boot_id']):
+                        self.assertEqual(m.transaction(payload), 'fixture-boot')
+                    self.assertEqual(dest.read_bytes(), b'old'); self.assertFalse(backup.exists())
+                    return
+                if boot_change:
+                    for phase in ('apply', 'rollback'):
+                        payload['phase'] = phase
+                        with self.assertRaisesRegex(RuntimeError, 'boot_identity_mismatch'):
+                            m.transaction(payload)
+                    self.assertEqual(dest.read_bytes(), b'old'); self.assertFalse(backup.exists())
+                    self.assertEqual(restarts, [])
+                    return
                 if interruption:
                     with self.assertRaises(KeyboardInterrupt): m.transaction(payload)
                     self.assertEqual(dest.read_bytes(), b'new'); self.assertEqual(states[-1], 'installed')
@@ -232,6 +249,8 @@ class Transactions(unittest.TestCase):
             self.assertNotIn(['unbound-control', 'reload'], commands)
             return restarts, states
 
+    def test_node_fresh_admission_observes_boot_without_writing(self): self.run_transaction(admission=True)
+    def test_reboot_blocks_apply_and_recovery_before_writes(self): self.run_transaction(boot_change=True)
     def test_apply_then_explicit_rollback(self): self.assertEqual(self.run_transaction()[0], [False, True])
     def test_restart_failure_restores_and_restarts_both(self): self.assertEqual(self.run_transaction('restart failure')[0], [False, True])
     def test_foreign_destination_preserved_and_recovery_held(self): self.run_transaction('drift')
@@ -244,6 +263,96 @@ class Transactions(unittest.TestCase):
 
 
 class Controller(unittest.TestCase):
+    def snapshot_case(self, run):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root/'node.py').write_bytes((ROOT/'scripts/apply-host-records.py').read_bytes())
+            op = {'policy': m.POLICY, 'target_path': '/zone', 'candidate_sha256': 'new',
+                  'nodes': {'secondary': {'hostname': 'never-a-production-host',
+                      'boot_id': 'boot', 'backup_directory': '/not-used',
+                      'files': {'/zone': {'sha256': 'old'}},
+                      'ssh': 'pi@192.0.2.53', 'host_key_alias': 'fixture'}}}
+            with patch.object(v.subprocess, 'run', side_effect=run):
+                return v.snapshot(root, op, 'secondary', 'before')
+
+    def test_snapshot_reports_safe_exit_and_hint(self):
+        for code, stderr, hint in [
+                (255, b'Permission denied (publickey).', 'ssh-authentication'),
+                (255, b'Host key verification failed.', 'ssh-host-key'),
+                (1, b'sudo: a password is required', 'sudo-password-required'),
+                (1, b'RuntimeError: boot_identity_mismatch', 'boot_identity_mismatch'),
+                (1, b'RuntimeError: file_drift: /private/SECRET', 'file_drift'),
+                (1, b'RuntimeError: SECRET', 'unknown')]:
+            with self.subTest(code=code, hint=hint):
+                row = subprocess.CompletedProcess([], code, b'SECRET', b'SECRET\n'+stderr)
+                with self.assertRaises(RuntimeError) as caught:
+                    self.snapshot_case(lambda *a, **k: row)
+                text = str(caught.exception); detail = json.loads(text.split(': ', 1)[1])
+                self.assertEqual(detail['observed_exit'], code)
+                self.assertEqual(detail['hint'], hint)
+                self.assertEqual(detail['node'], 'secondary')
+                self.assertEqual(detail['stdout_bytes'], 6)
+                self.assertEqual(detail['stderr_bytes'], len(row.stderr))
+                self.assertNotIn('SECRET', text)
+                self.assertLess(len(text), 512)
+
+    def test_snapshot_bounds_launch_timeout_and_bad_results(self):
+        cases = [
+            (subprocess.TimeoutExpired(['ssh', 'SECRET'], 1, b'SECRET', b'SECRET'), 'timeout'),
+            (OSError(2, 'SECRET'), 'launch'),
+            (subprocess.CompletedProcess([], 0, b'x'*1048577, b''), 'output-limit'),
+            (subprocess.CompletedProcess([], 1, b'', b'x'*65537), 'output-limit'),
+        ]
+        cases.extend((subprocess.CompletedProcess([], 0, raw, b''), 'invalid-result')
+                     for raw in (b'', b'SECRET', b'[]', b'null', b'"SECRET"', b'\xff'))
+        for result, kind in cases:
+            with self.subTest(kind=kind):
+                def run(*args, **kwargs):
+                    if isinstance(result, Exception):
+                        raise result
+                    return result
+                with self.assertRaises(RuntimeError) as caught:
+                    self.snapshot_case(run)
+                detail = json.loads(str(caught.exception).split(': ', 1)[1])
+                self.assertEqual(detail['kind'], kind)
+                self.assertNotIn('SECRET', ''.join(traceback.format_exception(caught.exception)))
+
+    def test_actual_snapshot_wire_classifies_native_python_rejection(self):
+        # Execute the actual streamed node source locally; no SSH or DNS call.
+        native_run = subprocess.run
+        def local_python(argv, **kwargs):
+            self.assertIn('StrictHostKeyChecking=yes', argv)
+            self.assertIn('BatchMode=yes', argv)
+            return native_run([sys.executable, '-I', '-B', '-'], **kwargs)
+        with self.assertRaises(RuntimeError) as caught:
+            self.snapshot_case(local_python)
+        detail = json.loads(str(caught.exception).split(': ', 1)[1])
+        self.assertEqual(detail['observed_exit'], 1)
+        self.assertEqual(detail['hint'], 'identity_mismatch')
+
+    def test_snapshot_accepts_valid_result_with_preceding_events(self):
+        capture = {'hostname': 'never-a-production-host', 'boot_id': 'boot', 'zone_sha256': 'old'}
+        row = subprocess.CompletedProcess([], 0, b'event\n'+json.dumps(capture).encode(), b'')
+        self.assertEqual(self.snapshot_case(lambda *a, **k: row), capture)
+
+    def test_paired_timeout_retains_safe_snapshot_diagnostics(self):
+        clock = [0]; contacted = []
+        op = {'nodes': {'secondary': {}, 'primary': {}}}
+        def fetch(root, operation, label, desired, timeout):
+            contacted.append(label)
+            raise v.snapshot_failure(label, 'command-exit', 255, b'SECRET',
+                                     b'Permission denied (publickey). SECRET')
+        with patch.object(v.time, 'monotonic', side_effect=lambda: clock[0]), patch.object(v.time, 'sleep', side_effect=lambda n: clock.__setitem__(0, clock[0]+n)):
+            with self.assertRaises(RuntimeError) as caught:
+                v.paired_gate(Path('.'), op, m, {'secondary': 'before', 'primary': 'before'}, fetch)
+        text = str(caught.exception)
+        self.assertIn('ssh-authentication', text)
+        self.assertIn('255', text)
+        self.assertNotIn('SECRET', text)
+        self.assertLessEqual(len(text), 4030)
+        self.assertEqual(set(contacted), {'secondary'})
+        self.assertEqual(clock[0], 180)
+
     def test_owner_change_converges_and_uses_serving_nodes_state(self):
         clock = [0]; count = [0]; checked = []
         op = {'nodes': {'secondary': {'hostname': 's'}, 'primary': {'hostname': 'p'}},
@@ -261,21 +370,24 @@ class Controller(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)/'bundle'; root.mkdir()
             op = {'policy': m.POLICY, 'prepared_epoch': int(time.time())-1, 'expires_epoch': int(time.time())+86400,
+                  'operation_id': 'test-operation', 'boot_policy': m.BOOT_POLICY,
                   'nodes': {'secondary': {'ssh': 'pi@192.0.2.53', 'host_key_alias': 'fixture'}}}
-            content = {'node.py': b'# fixture', 'dispatch.py': b'# fixture', 'verify.py': b'# fixture', 'operation.json': json.dumps(op).encode(),
+            content = {'node.py': b'# fixture', 'dispatch.py': b'# fixture', 'verify.py': (ROOT/'scripts/verify-host-records.py').read_bytes(), 'operation.json': json.dumps(op).encode(),
                        'known_hosts': b'fixture', 'candidate.conf': b'new', 'secondary-candidate-expanded.conf': b'expanded'}
             for name, raw in content.items(): (root/name).write_bytes(raw)
             index = ''.join(hashlib.sha256(raw).hexdigest()+'  '+name+'\n' for name, raw in content.items()).encode()
             (root/'SHA256SUMS').write_bytes(index); digest = hashlib.sha256(index).hexdigest()
             with patch.object(d.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run:
                 with self.assertRaises(FileNotFoundError): d.main(root, digest, 'secondary', 'apply')
+                with self.assertRaises(FileNotFoundError): d.main(root, digest, 'secondary', 'rollback')
                 run.assert_not_called()
-                gate = root.parent/'gate-before.json'; gate.write_text(json.dumps({'accepted': True, 'sha256': digest, 'recorded_epoch': time.time()-121}))
+                gate = root.parent/'gate-before.json'; gate.write_text(json.dumps({'accepted': True, 'sha256': digest, 'phase': 'before', 'operation_id': 'test-operation', 'boot_ids': {'secondary': '11111111-1111-1111-1111-111111111111'}, 'recorded_epoch': time.time()-121})); gate.chmod(0o600)
                 with self.assertRaisesRegex(RuntimeError, 'fresh_paired_gate'): d.main(root, digest, 'secondary', 'apply')
-                gate.write_text(json.dumps({'accepted': True, 'sha256': digest, 'recorded_epoch': time.time()}))
+                gate.write_text(json.dumps({'accepted': True, 'sha256': digest, 'phase': 'before', 'operation_id': 'test-operation', 'boot_ids': {'secondary': '11111111-1111-1111-1111-111111111111'}, 'recorded_epoch': time.time()}))
                 self.assertEqual(d.main(root, digest, 'secondary', 'apply'), 0)
                 with self.assertRaises(FileExistsError): d.main(root, digest, 'secondary', 'apply')
                 self.assertEqual(run.call_count, 1)
+                self.assertIn(b'11111111-1111-1111-1111-111111111111', run.call_args.kwargs['input'])
                 argv = run.call_args.args[0]
                 self.assertIn('StrictHostKeyChecking=yes', argv); self.assertIn('HostKeyAlias=fixture', argv)
 
@@ -298,6 +410,97 @@ class Controller(unittest.TestCase):
             row = subprocess.CompletedProcess([], 0, json.dumps({'hostname': 'wrong', 'boot_id': 'boot', 'zone_sha256': 'old'}).encode(), b'')
             with patch.object(v.subprocess, 'run', return_value=row):
                 with self.assertRaisesRegex(RuntimeError, 'snapshot_identity'): v.snapshot(root, op, 'secondary', 'before')
+
+    def test_admission_receipt_binds_operation_and_is_reused_for_resume(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)/'bundle'; root.mkdir()
+            op = {'operation_id': 'op', 'nodes': {'secondary': {'boot_id': 'historical'}}}
+            boot = '11111111-1111-1111-1111-111111111111'
+            gate = {'accepted': True, 'phase': 'before', 'operation_id': 'op',
+                    'sha256': 'digest', 'boot_ids': {'secondary': boot}}
+            path = root.parent/'gate-before.json'; path.write_text(json.dumps(gate)); path.chmod(0o600)
+            self.assertEqual(v.admitted_operation(root, op, 'digest')['nodes']['secondary']['boot_id'], boot)
+            self.assertEqual(op['nodes']['secondary']['boot_id'], 'historical')
+            for key, bad in [('accepted', False), ('operation_id', 'other'), ('sha256', 'other'), ('boot_ids', {})]:
+                changed = dict(gate); changed[key] = bad; path.write_text(json.dumps(changed))
+                with self.assertRaisesRegex(RuntimeError, 'bound_boot_admission'):
+                    v.admitted_operation(root, op, 'digest')
+            path.unlink(); path.symlink_to(root/'missing')
+            with self.assertRaises(OSError): v.admitted_operation(root, op, 'digest')
+
+    def test_new_boot_admitted_but_change_between_gate_samples_stops(self):
+        for reboot in (False, True):
+            clock = [0]; calls = []
+            boot = '11111111-1111-1111-1111-111111111111'
+            op = {'boot_policy': m.BOOT_POLICY,
+                  'nodes': {'secondary': {'hostname': 's', 'boot_id': None}, 'primary': {'hostname': 'p', 'boot_id': None}},
+                  'vip_before_checks': []}
+            def fetch(root, operation, label, desired, timeout):
+                calls.append(label)
+                observed = '22222222-2222-2222-2222-222222222222' if reboot and len(calls) > 2 else boot
+                return {'hostname': 's' if label == 'secondary' else 'p', 'boot_id': observed,
+                        'services': ACTIVE, 'dns_passed': True, 'vips': sorted(m.VIPS) if label == 'primary' else []}
+            with patch.object(v.time, 'monotonic', side_effect=lambda: clock[0]), patch.object(v.time, 'sleep', side_effect=lambda n: clock.__setitem__(0, clock[0]+n)):
+                if reboot:
+                    with self.assertRaisesRegex(RuntimeError, 'boot_identity_mismatch'):
+                        v.paired_gate(Path('.'), op, m, {'secondary': 'before', 'primary': 'before'}, fetch)
+                    self.assertEqual(len(calls), 3)
+                else:
+                    result = v.paired_gate(Path('.'), op, m, {'secondary': 'before', 'primary': 'before'}, fetch)
+                    self.assertEqual(result['boot_ids'], {'secondary': boot, 'primary': boot})
+
+    def test_incomplete_initial_admission_does_not_resample_boots(self):
+        op = {'boot_policy': m.BOOT_POLICY, 'nodes': {'secondary': {'boot_id': None}, 'primary': {'boot_id': None}}}
+        def fetch(*args, **kwargs):
+            raise RuntimeError('service_failed')
+        with patch.object(v.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError, 'service_failed'):
+                v.paired_gate(Path('.'), op, m, {'secondary': 'before'}, fetch)
+            sleep.assert_not_called()
+
+    def test_remote_reboot_hint_stops_without_convergence_retry(self):
+        def fetch(*args, **kwargs):
+            raise v.snapshot_failure('secondary', 'command-exit', 1, stderr=b'RuntimeError: boot_identity_mismatch')
+        with patch.object(v.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError, 'boot_identity_mismatch'):
+                v.paired_gate(Path('.'), {'nodes': {}}, m, {'secondary': 'before'}, fetch)
+            sleep.assert_not_called()
+
+    def test_admission_snapshot_still_rejects_host_and_configuration_drift(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); (root/'node.py').write_bytes(b'# fixture')
+            op = {'boot_policy': m.BOOT_POLICY, 'target_path': '/zone', 'nodes': {'secondary': {
+                'hostname': 'expected', 'boot_id': None, 'files': {'/zone': {'sha256': 'old'}},
+                'ssh': 'pi@192.0.2.53', 'host_key_alias': 'fixture'}}}
+            capture = {'hostname': 'expected', 'boot_id': '11111111-1111-1111-1111-111111111111', 'zone_sha256': 'old'}
+            for key, value in [('hostname', 'wrong'), ('zone_sha256', 'changed')]:
+                wrong = dict(capture); wrong[key] = value
+                with patch.object(v.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(wrong).encode(), b'')):
+                    with self.assertRaisesRegex(RuntimeError, 'snapshot_identity_or_state'):
+                        v.snapshot(root, op, 'secondary', 'before')
+            with patch.object(v.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(capture).encode(), b'')):
+                self.assertEqual(v.snapshot(root, op, 'secondary', 'before'), capture)
+
+    def test_initial_gate_persists_fresh_ids_and_later_gate_reuses_them(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)/'bundle'; root.mkdir()
+            op = {'operation_id': 'op', 'boot_policy': m.BOOT_POLICY,
+                  'nodes': {'secondary': {'boot_id': 'old-s'}, 'primary': {'boot_id': 'old-p'}}}
+            boot = '11111111-1111-1111-1111-111111111111'
+            def gate(root, admitted, module, states):
+                expected = None if states['secondary'] == 'before' else boot
+                self.assertTrue(all(n['boot_id'] == expected for n in admitted['nodes'].values()))
+                return {'accepted': True, 'boot_ids': {label: boot for label in admitted['nodes']}}
+            with patch.object(v, '__file__', str(root/'verify.py')), patch.object(v, 'load_inputs', side_effect=lambda *args: (copy.deepcopy(op), m)), patch.object(v, 'paired_gate', side_effect=gate):
+                with patch.object(v.sys, 'argv', ['verify.py', 'digest', 'before']), patch('builtins.print'):
+                    v.main()
+                    with self.assertRaises(FileExistsError): v.main()
+                saved = json.loads((root.parent/'gate-before.json').read_text())
+                self.assertEqual(saved['operation_id'], 'op')
+                self.assertEqual(saved['boot_ids']['secondary'], boot)
+                with patch.object(v.sys, 'argv', ['verify.py', 'digest', 'secondary']), patch('builtins.print'):
+                    v.main()
+                self.assertEqual(json.loads((root.parent/'gate-secondary.json').read_text())['boot_ids'], saved['boot_ids'])
 
     def test_wrong_hash_rejected_before_target_contact(self):
         with tempfile.TemporaryDirectory() as folder:

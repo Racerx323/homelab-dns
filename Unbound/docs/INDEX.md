@@ -3,6 +3,10 @@
 Use this index to select the runbook matching the target. The procedures are
 written for Linux administrators and assume command-line access with `sudo`.
 
+All fleet DNS additions, updates, deletions and other changes start with the
+[fleet DNS change procedure](host-record-deployment.md). Application onboarding uses
+this same entry point; package and topology changes select their owner runbook there.
+
 ## 📋 Base requirements
 
 - [Unbound 1.25.1 scenario requirements](unbound-1.25-requirements.md)

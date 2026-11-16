@@ -97,6 +97,15 @@ For literal string sweeps use your native search - do NOT route text sweeps thro
 Repo SOURCE only: logs, dist/, node_modules/ and files outside the repo are NOT indexed.
 <!-- /vexp -->
 
+## Fleet DNS change entry point
+
+- Route every fleet DNS addition, edit, deletion or other DNS change through
+  [the fleet DNS change procedure](Unbound/docs/host-record-deployment.md).
+- Application onboarding must link to that procedure and use the DNS owner's
+  existing execution path. Do not create application-specific DNS orchestration.
+- Select the appropriate owner implementation for non-record changes or unsupported
+  record types. The entry point does not expand executable coverage or live authority.
+
 ## Unbound local-zone changes
 
 - Unbound local-zone synchronization is not implemented. Deploy the reviewed
@@ -129,3 +138,15 @@ Repo SOURCE only: logs, dist/, node_modules/ and files outside the repo are NOT 
   failover tests. Retain prior qualification and use brief live service/DNS/HTTPS
   checks in the separately approved execution scope. Caddy can move with the
   linked Keepalived group; its configuration and synchronization remain unchanged.
+
+## DNS boot continuity
+
+- Follow the workspace host-identity/operation-continuity rule: fresh admission
+  captures each DNS node's current boot ID after host authentication, independently
+  of historical expected IDs. Keep exact configuration and health checks.
+- Bind admitted IDs into the existing paired-gate/dispatch evidence for all later
+  phases. A reboot before admission is ordinary; an unexpected reboot after
+  admission stops progression and requires reconciliation, including recovery safety.
+- Qualify this behavior in the existing host-record test suite, without new platform
+  fixtures or simulated failover. Do not implement the policy by dropping all boot
+  checks, repinning a consumed bundle, or silently resetting continuity on resume.

@@ -14,6 +14,7 @@ import tempfile
 import time
 
 POLICY = 'atomic-zone-full-restart-v2'
+BOOT_POLICY = 'operation-admission-v1'
 VIPS = {'10.1.0.55', 'fd36:5aa8:6971:1::55'}
 LINKED_VIPS = VIPS | {'10.1.0.56', 'fd36:5aa8:6971:1::56'}
 SERVICES = ('unbound', 'pihole-FTL', 'keepalived')
@@ -208,6 +209,13 @@ def check_public_dns(server, port, name):
         raise RuntimeError('public_resolution_unhealthy')
 
 
+def require_boot(node):
+    actual = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    if actual != node['boot_id']:
+        raise RuntimeError('boot_identity_mismatch')
+    return actual
+
+
 def inspect_node(node, dest, expected_hash, checks):
     verify_file(dest, expected_hash)
     row = health(node)
@@ -229,6 +237,7 @@ def inspect_node(node, dest, expected_hash, checks):
         if before_caddy != after_caddy or not running({u: after_caddy for u in SERVICES}):
             raise RuntimeError('caddy_service_unhealthy_or_changed')
         final.update(caddy_healthy=True, caddy_state=after_caddy)
+    require_boot(node)
     return dict(final, hostname=node['hostname'], boot_id=node['boot_id'],
                 dns_passed=True, zone_sha256=expected_hash)
 
@@ -253,6 +262,8 @@ def backup_check(backup):
 
 
 def restore(node, dest, backup, before, candidate_hash):
+    if node.get('boot_id') is not None:
+        require_boot(node)
     backup_check(backup)
     original = verify_file(backup/'original.conf', before['sha256'])
     record = json.loads(verify_file(backup/'before.json', node['before_record_sha256']))
@@ -267,10 +278,14 @@ def restore(node, dest, backup, before, candidate_hash):
     if (current.st_uid, current.st_gid, stat.S_IMODE(current.st_mode)) != (before['uid'], before['gid'], before['mode']):
         raise RuntimeError('rollback_metadata_drift')
     state_write(backup, {'phase': 'restore_intent', 'before': before['sha256'], 'candidate': candidate_hash})
+    if node.get('boot_id') is not None:
+        require_boot(node)
     install(dest, original, before['uid'], before['gid'], before['mode'], expected=dict(before, sha256=current_hash))
     command(['unbound-checkconf', '/etc/unbound/unbound.conf'])
     restart_services(node, restoring=True)
     verify_file(dest, before['sha256'])
+    if node.get('boot_id') is not None:
+        require_boot(node)
     state_write(backup, {'phase': 'restored_requires_cluster_dns_gate', 'before': before['sha256'], 'candidate': candidate_hash})
     event('rollback_verified_file_and_services', dns_verification_pending=True)
 
@@ -289,9 +304,11 @@ def transaction(payload):
     phase = payload['phase']
     if os.geteuid() != 0 or command(['hostname']).strip() != node['hostname']:
         raise RuntimeError('identity_mismatch')
-    boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
-    if boot != node['boot_id']:
-        raise RuntimeError('boot_identity_mismatch')
+    if op.get('boot_policy') == BOOT_POLICY and node.get('boot_id') is None:
+        if phase != 'inspect' or payload.get('expected_state') != 'before':
+            raise RuntimeError('boot_admission_required')
+        node['boot_id'] = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    require_boot(node)
     for _, binary in node['binaries'].items():
         verify_file(binary['path'], binary['sha256'])
     actual = {str(p) for p in Path('/etc/unbound/unbound.conf.d').glob('*.conf')} | {'/etc/unbound/unbound.conf'}
@@ -329,6 +346,7 @@ def transaction(payload):
                          capture_output=True, timeout=20, env=ENV)
     if row.returncode:
         raise RuntimeError('candidate_validation_failed')
+    require_boot(node)
     backup.mkdir(mode=0o700, exist_ok=False)
     sync_directory(backup.parent)
     durable_file(backup/'original.conf', original)
@@ -339,11 +357,13 @@ def transaction(payload):
     try:
         verify_file(dest, before['sha256'])
         state_write(backup, {'phase': 'write_intent', 'before': before['sha256'], 'candidate': op['candidate_sha256']})
+        require_boot(node)
         install(dest, candidate, before['uid'], before['gid'], before['mode'], expected=before)
         state_write(backup, {'phase': 'installed', 'before': before['sha256'], 'candidate': op['candidate_sha256']})
         command(['unbound-checkconf', '/etc/unbound/unbound.conf'])
         restart_services(node)
         verify_file(dest, op['candidate_sha256'])
+        require_boot(node)
         state_write(backup, {'phase': 'applied_requires_cluster_dns_gate', 'before': before['sha256'], 'candidate': op['candidate_sha256']})
         return {'result': 'applied_requires_cluster_dns_gate', 'backup': str(backup), 'sha256': op['candidate_sha256']}
     except Exception as error:

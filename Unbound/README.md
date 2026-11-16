@@ -8,6 +8,10 @@ Start with the [Unbound documentation index](docs/INDEX.md). The
 [Unbound 1.25.1 scenario requirements](docs/unbound-1.25-requirements.md) are
 the authoritative baseline for both supported deployment scenarios.
 
+All fleet DNS additions, updates, deletions and other changes start with the
+[fleet DNS change procedure](docs/host-record-deployment.md). Application onboarding uses
+this same entry point; package and topology changes select their owner runbook there.
+
 ## 🏗️ Packaging and deployment automation
 
 The repository pins Debian's Unbound `1.25.1-1` source and produces the exact

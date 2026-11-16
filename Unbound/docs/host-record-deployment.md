@@ -1,4 +1,71 @@
-# Host DNS record deployment
+# Fleet DNS change procedure
+
+**Start here for every fleet DNS addition, update, deletion or other DNS change.**
+Application and host runbooks link to this procedure; they do not create separate
+DNS deployment paths. DNS owns the source, readiness, execution and resolver
+acceptance. The requesting host/application owner supplies the intended names,
+addresses and consumer checks. Reuse that project's PLAN/WORK/RESULT record.
+
+## Select the change
+
+| Requested change | Execution path |
+| --- | --- |
+| Add, edit or delete fleet local-zone records | Use the local-zone transaction below and the existing `apply-host-records.py`, `verify-host-records.py` and `dispatch-host-records.py` under `Unbound/scripts/`. |
+| Other record types or DNS stores | Enter here, identify the authoritative source and owner, then qualify support in that owner's existing procedure before sealing. The current local-zone query checker supports A, AAAA and PTR only. |
+| Forwarding, resolver policy, packages, services or HA topology | Enter here and select the applicable [DNS owner runbook](INDEX.md). Review its specific change and recovery scope; the record-only transaction does not authorize these operations. |
+
+This is one intake and operating contract, not a claim that one executable can
+perform every DNS change. Do not copy a historical application bundle or use an
+application name to select a deployment implementation. The readiness helper's
+existing application-specific modes require coverage review before reuse for a
+new consumer; their names do not establish fleet-wide capture coverage.
+
+## Prepare the requested change
+
+1. Record the requester, affected hosts/services, authoritative store and exact
+   record delta. For each name/type, specify the complete before and desired
+   answer sets, response code and TTL/cache expectations. Include reverse records
+   where required. An application alias to a shared VIP does not automatically
+   replace that VIP's canonical PTR. Check effective includes for conflicts.
+2. Select the actual DNS serving topology and owner procedure. For the existing
+   HA pair, capture paired readiness under a bounded read-only scope: host keys,
+   hostnames, exact configuration/include and executable identities, service
+   health, current answers and coherent linked DNS/Proxy VIP ownership. Preserve
+   unrelated records. Reconcile source/live drift before building a candidate.
+3. Build the candidate against the reviewed baseline. For additions, prove the
+   name/type is absent or reconcile an identical existing record. For edits,
+   identify exactly which old answers are replaced. For deletions, specify the
+   expected remaining answers and response code; do not assume every deletion
+   makes the entire name NXDOMAIN. Review dependent aliases and consumers.
+4. Define checks for before, first-node-only, both-nodes-after and recovery
+   states. Include changed records, removed/old answers, unrelated local/public
+   controls, direct Unbound, both Pi-hole nodes and DNS VIPs in both families.
+   Match VIP expectations to the serving node during convergence. Record TTL
+   deadlines and a bounded hold/recovery decision for stale cache answers.
+5. Qualify the exact candidate and affected existing execution path. Review
+   support for the intended edit or deletion rather than inferring it from a
+   successful earlier addition. Native validation must check the candidate's
+   effective include tree. Keep source revision, exact input hashes, per-node
+   backups, restart commands, acceptance and recovery in one reviewed operation.
+6. Obtain the exact live authority, then execute the applicable owner sequence.
+   Capture fresh boot IDs at admission and enforce continuity only within that
+   operation. Keep configuration and health checks across routine prior reboots.
+7. Reconcile source, both serving nodes, consumer acceptance and permanent docs.
+   Retain receipts and backups; record failures or partial acceptance explicitly.
+   Publication and unrelated live work require their own applicable authority.
+
+For the existing HA local-zone path: operate on the current non-VIP owner first,
+atomically replace each node's file independently, validate, fully restart
+Unbound and then Pi-hole DNS, and accept the pair before progressing. Caddy's
+replication does not replicate DNS records. Use the detailed sequence and stop/
+recovery conditions below; no new coordinator or synchronization service is added.
+
+## Historical deployment references
+
+The application-specific entries below retain prior evidence and links. Their
+record counts, node versions and consumed approvals are historical, not defaults
+for a new fleet change. The current reusable contract starts at
+[local-zone updates](#current-local-zone-update-contract).
 
 The [NTP1 IPv6 prerequisite review](ntp1-ipv6-prerequisite-review.md) defines an
 independent two-record candidate required before the svmf network successor.
@@ -22,6 +89,48 @@ All exact NTP DNS and paired DNS/Caddy health gates passed. Both nodes serve AAA
 All retained samples show the four-VIP group on .53. No rollback or forced
 failover occurred. Backups/durable state remain; receipts are consumed. This
 accepts the NTP record change, not later Munin/svmf records or all Phase 5 DNS.
+
+## Operation-scoped boot continuity
+
+New deployment bundles must declare `boot_policy: operation-admission-v1`.
+The initial `before` gate authenticates each host and captures its current boot
+ID instead of comparing a preparation-time or historical ID. All configuration,
+executable, DNS, service and HA checks still apply. A reboot before this admission
+is ordinary; an incomplete initial identity sample stops rather than rediscovering
+boots on a retry. Successful samples retain their IDs across convergence checks.
+
+The accepted private `gate-before.json` binds both IDs to the operation ID and
+approved input digest. Subsequent gates, apply and rollback read that receipt;
+they never refresh it on resume. Mutation also requires the existing fresh paired
+gate with the same operation and IDs. Missing, unsafe, foreign or incomplete
+admission evidence stops before target contact. Node-side checks enforce continuity
+at inspection completion and around writes/recovery. A boot mismatch stops paired
+convergence immediately and requires state/recovery reconciliation; it does not
+authorize automatic re-admission or a rollback on the new boot.
+
+Keep historical IDs as evidence only. Preserve consumed bundles, whose original
+contracts remain immutable. This source change does not authorize deployment,
+reboot or replay. Explicit planned reboot workflows need a separate approved
+transition contract; the DNS record operation contains no reboot.
+
+## Uptime Kuma readiness refresh
+
+Use the existing `scripts/inspect-ntp-dns-readiness.py` with `seal --uptime`
+and `--mode dns54` or `--mode dns53`. This read-only mode captures current boot
+identity before/after instead of pinning a historical boot, while retaining
+strict hostname/host-key checks and all protected file and transport bounds.
+It extends the DNS capture to Caddy state, all four coupled VIPs, current
+executable identities, sanitized service start definitions, cursor-only journal
+reads, Uptime records and preserved local/public DNS controls. It validates the
+current configuration; it does not generate or install a new record candidate.
+
+Prepare separate one-use node archives, review both digests together, and inspect
+the secondary before the primary. Stop on incomplete capture; review both
+results together before any deployment preparation. Native-checker/query failure,
+conflicting records, changed identities or incoherent coupled ownership remain
+holds even when transport and capture complete. Captures grant no mutation
+permission. Keep failed deployment bundles immutable; never copy a new boot ID
+into a consumed operation. The application ledger owns exact scope and approval.
 
 ## Prepared change: Nautobot host
 
@@ -85,7 +194,7 @@ or unrelated source/live drift stops readiness. Record normal failover rather
 than pinning the initial owner; do not force VIP movement.
 
 Compare both deployed fragments with the candidate's parent version. Require
-that the proposed per-node diff adds only the operation's reviewed records. Preserve
+that the per-node diff contains only the reviewed additions, edits or deletions. Preserve
 unrelated records; never overwrite live drift with the repository file. Conflicting
 forward or reverse records in any effective include stop deployment. Existing
 identical records call for reconciliation rather than duplicate insertion.
@@ -95,10 +204,9 @@ before hashes/metadata, ordered actions, validation queries, rollback commands
 and source revision. Hash all non-secret execution inputs. This document and
 the source-file hash alone are not an executable authorization bundle.
 
-Native `unbound-checkconf` is unavailable on the preparation workstation. The
-authorized readiness review validated the candidate in memory using each node’s
-installed Unbound 1.17.1 checker and captured effective includes; both passed.
-This is configuration validation, not an Unbound package-upgrade qualification.
+Establish native-checker availability for the current preparation environment
+and target version. Historical readiness used the installed Unbound 1.17.1
+checker; that result does not validate a new candidate or establish today’s version.
 Local record/diff checks alone do not substitute for native validation. Before live replacement, validate a
 protected candidate configuration tree with the target's installed checker,
 resolving includes to staged candidate files while preserving required production
@@ -137,19 +245,19 @@ handled by the reviewed HA gate.
    full restart for other versions. Both restarts are mandatory for apply and
    rollback under [repository policy](../../AGENTS.md#unbound-local-zone-changes).
 6. Verify healthy Unbound/Pi-hole/Keepalived on both nodes and coherent VIP ownership,
-   loopback-only Unbound listeners and baseline DNS health. Query all four records
+   loopback-only Unbound listeners and baseline DNS health. Query all reviewed changed records
    directly through that node's IPv4 and IPv6 Pi-hole endpoints. Also query its
    loopback Unbound port 5335 to distinguish resolver data from Pi-hole cache.
    Check unrelated existing local records and public resolution against baseline.
 7. Proceed to the second node only after the first node's complete gate passes.
    Recheck roles and peer readiness. Until both nodes are updated, VIP answers
-   for new records must match the currently serving node's accepted deployment
+   for changed records must match the currently serving node's accepted deployment
    state; pre-existing DNS must remain available throughout the bounded window.
-   Then run all 24 consumer queries through both node addresses and both VIPs.
+   Then run the complete reviewed query matrix through both node addresses and both VIPs.
    Confirm exact records and no unexpected aliases or extra addresses.
 
-Pi-hole or client negative caches may retain the earlier NXDOMAIN. Record the
-negative TTL and the deadline before retrying after expiry. A correct direct
+Pi-hole or client caches may retain earlier positive or negative answers. Record the
+applicable TTL and the deadline before retrying after expiry. A correct direct
 Unbound answer does not waive the Pi-hole/VIP checks. Do not globally flush caches,
 extend the window indefinitely without a reviewed scope. Both mandatory full service
 restarts must be included in the reviewed scope; an Unbound reload or Pi-hole
@@ -157,10 +265,10 @@ cache-only/list-only reload does not satisfy the restart requirement.
 If the bounded window cannot accommodate expiry, record incomplete validation
 and follow the agreed rollback/hold decision rather than declaring success.
 
-Finish with FQDN SSH in both address families and matching authenticated host
-identity under the Nautobot review. Preserve strict host-key checking; a temporary
-explicit alias to the independently trusted target identity is acceptable, while
-changing DNS resolution via hosts files is not a DNS acceptance test.
+Finish with the requesting owner’s reviewed normal-name consumer checks in
+both intended address families, such as trusted browser HTTPS for Webmin or
+strictly authenticated FQDN SSH for a host record. Preserve certificate/host-key
+verification. A hosts-file override is not DNS acceptance.
 
 ## Rollback and stop conditions
 
@@ -208,6 +316,13 @@ one-use mutation receipts, bound original/candidate DNS expectations, durable
 backups and reverse-order recovery. Current CLI and required inputs are defined
 in the qualification document. Historical invocation examples below do not
 specify the successor's authorization or new inputs.
+
+Snapshot failures report the node label, failure category, expected/observed
+process exit status, stdout/stderr byte counts and an allowlisted error hint.
+Timeout, process-launch, output-limit and invalid-result failures remain rejected.
+Hints describe observed error text, not independently proven causes. Raw remote
+output, credentials and arbitrary exception messages are excluded from these
+diagnostics. Frozen historical helpers retain their original reporting behavior.
 
 The reviewed bundle contains copies of `scripts/apply-host-records.py` as
 `node.py`, `scripts/dispatch-host-records.py` as `dispatch.py`, and

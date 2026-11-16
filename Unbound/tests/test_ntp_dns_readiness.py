@@ -38,6 +38,21 @@ class ReadinessTests(unittest.TestCase):
         with self.assertRaises(ValueError): d.unpack(raw, d.sha(raw))
         with self.assertRaises(ValueError): d.expected_target('ntp', True)
 
+    def test_uptime_scope_binding_and_no_stale_boot_pin(self):
+        def uptime(spec):
+            spec['uptime'] = True
+            spec['operation_id'] = 'uptime-kuma-dns53-readiness-20261112-v1'
+        raw, _, spec = self.bundle('dns53', mutate=uptime)
+        self.assertIsNone(d.unpack(raw, d.sha(raw))[0]['target']['boot_id'])
+        self.assertIn('60 one-attempt', d.review(spec))
+        for change in (lambda s: s.update(qualification=True),
+                       lambda s: s['target'].update(boot_id='stale'),
+                       lambda s: s.update(operation_id='ntp1-dns53-readiness-20261112-v1')):
+            def invalid(spec):
+                uptime(spec); change(spec)
+            raw, _, _ = self.bundle('dns53', mutate=invalid)
+            with self.assertRaises(ValueError): d.unpack(raw, d.sha(raw))
+
     def test_control_projection_preserves_path_semantics_without_config_secrets(self):
         raw = b'REMOTE_HOST="10.1.0.54"\nPASSWORD="must-not-export"\nAPI_KEY="must-not-export"\nsource=/etc/unbound\nrsync --exclude=/etc/pihole/custom.list --delete\n'
         projection = d.control_projection(raw)
@@ -245,20 +260,29 @@ class ReadinessTests(unittest.TestCase):
             self.assertIn('+tries=1', argv); self.assertIn('+ignore', argv)
             self.assertIn(argv[5], (d.NAME, *( __import__('ipaddress').ip_address(a).reverse_pointer+'.' for a in d.ADDRESSES)))
 
-    def dns_fixture(self, vip_change=False):
+    def test_uptime_queries_preserve_controls_without_proxy_dns(self):
+        with patch.object(d, 'probe', return_value={}) as probe:
+            d.dns_queries(d.TARGETS['dns54']['addresses'], uptime=True)
+        self.assertEqual(probe.call_count, 60)
+        for call in probe.call_args_list:
+            self.assertIn('+tries=1', call.args[0])
+            self.assertNotIn(call.args[0][2], ('@10.1.0.56', '@fd36:5aa8:6971:1::56'))
+        self.assertTrue(any(d.UPTIME_NAMES[0] in c.args[0] for c in probe.call_args_list))
+
+    def dns_fixture(self, vip_change=False, uptime=False):
         def read(path):
             if str(path) == d.FRAGMENT: return BASE, {'size': len(BASE), 'sha256': d.sha(BASE)}
             raise FileNotFoundError()
-        proposed = d.ntp_candidate(BASE)[0]
+        proposed = BASE if uptime else d.ntp_candidate(BASE)[0]
         graph = (BASE, {d.FRAGMENT: {'metadata': read(d.FRAGMENT)[1]}}, [{'parent': '/etc/unbound/unbound.conf', 'child': d.FRAGMENT}])
-        after = json.dumps([{'addr_info': [{'local': d.VIPS[0]}]}]) if vip_change else '[]'
-        with patch.object(d, 'unit', return_value='ActiveState=active\n'), patch.object(d, 'required', side_effect=['[]', after]), patch.object(d, 'read_file', side_effect=read), patch.object(d, 'config_graph', side_effect=[graph, (proposed, graph[1], graph[2]), graph]), patch.object(d, 'probe', return_value={'returncode': 0, 'stdout': '', 'stderr': ''}) as probe, patch.object(d, 'dns_queries', return_value=[]), patch.object(d, 'sync_projection', return_value={'complete_writer_proof': False}):
-            result = {'findings': []}
+        after = json.dumps([{'addr_info': [{'local': d.COUPLED_VIPS[-1] if uptime else d.VIPS[0]}]}]) if vip_change else '[]'
+        with patch.object(d, 'unit', return_value='ActiveState=active\n'), patch.object(d, 'required', side_effect=['[]', after]), patch.object(d, 'read_file', side_effect=read), patch.object(d, 'config_graph', side_effect=[graph, (proposed, graph[1], graph[2]), graph]), patch.object(d, 'probe', return_value={'returncode': 0, 'stdout': '', 'stderr': ''}) as probe, patch.object(d, 'dns_queries', return_value=[]), patch.object(d, 'sync_projection', return_value={'complete_writer_proof': False}), patch.object(d, 'collect_uptime_metadata'):
+            result = {'findings': [], 'binary_metadata': {}, 'service_definitions': {}}
             if vip_change:
                 with self.assertRaisesRegex(ValueError, 'VIP ownership drift'):
-                    d.collect_dns({'target': d.TARGETS['dns53']}, result)
+                    d.collect_dns({'target': d.TARGETS['dns53'], 'uptime': uptime}, result)
             else:
-                d.collect_dns({'target': d.TARGETS['dns53']}, result)
+                d.collect_dns({'target': d.TARGETS['dns53'], 'uptime': uptime}, result)
         validation = [call for call in probe.call_args_list if call.args[0] == ['/usr/sbin/unbound-checkconf', '/dev/stdin']]
         self.assertEqual(validation[0].kwargs['payload'], proposed)
         self.assertNotIn(b'::83', validation[0].kwargs['payload'])
@@ -268,6 +292,20 @@ class ReadinessTests(unittest.TestCase):
 
     def test_vip_change_stops_capture_even_when_service_pids_are_stable(self):
         self.dns_fixture(vip_change=True)
+
+    def test_uptime_metadata_is_bounded_and_redacts_launch_secrets(self):
+        result = {'findings': []}
+        with patch.object(d, 'read_file', return_value=(b'binary', {'sha256': 'same'})) as read, patch.object(d, 'required', return_value='ExecStart=SECRET=do-not-export\n'), patch.object(d, 'probe', return_value={'returncode': 0, 'stdout': '', 'stderr': ''}) as probe:
+            d.collect_uptime_metadata(result, ('caddy.service',))
+        self.assertNotIn('do-not-export', json.dumps(result))
+        self.assertEqual(read.call_count, 3)
+        self.assertTrue(all(c.kwargs['limit'] == 16777216 for c in read.call_args_list))
+        self.assertEqual(probe.call_count, 5)
+        self.assertIn('0', probe.call_args_list[0].args[0])
+
+    def test_uptime_existing_capture_contract_preserves_baseline_and_checks_proxy_vip(self):
+        self.dns_fixture(uptime=True)
+        self.dns_fixture(uptime=True, vip_change=True)
 
     def test_trusted_key_selection_uses_local_file_and_rejects_multiple_keys(self):
         for output, success in ((b'alias ssh-ed25519 AAAA\n', True),

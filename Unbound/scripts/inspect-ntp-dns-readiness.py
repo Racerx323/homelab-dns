@@ -23,6 +23,9 @@ from zoneinfo import ZoneInfo
 NAME = 'ntp1.local.theama.co.'
 ADDRESSES = ('10.1.0.51', 'fd36:5aa8:6971:1::51')
 VIPS = ('10.1.0.55', 'fd36:5aa8:6971:1::55')
+COUPLED_VIPS = (*VIPS, '10.1.0.56', 'fd36:5aa8:6971:1::56')
+UPTIME_NAMES = ('uptime.local.theama.co.', 'j2-svpi3bmf.local.theama.co.')
+UPTIME_ADDRESSES = ('10.1.3.75', 'fd36:5aa8:6971:1::75')
 FRAGMENT = '/etc/unbound/unbound.conf.d/pihole-local-zone.conf'
 TARGETS = {
     'ntp': {'hostname': 'j2-svntp1', 'user': 'ama', 'alias': '10.1.0.137',
@@ -51,7 +54,7 @@ def write(path, raw):
         stream.write(raw); stream.flush(); os.fsync(stream.fileno())
 
 
-def read_file(path):
+def read_file(path, limit=1048576):
     """Stable bounded protected regular file, without links or writable ancestry."""
     path = Path(path)
     for parent in path.parents:
@@ -61,12 +64,12 @@ def read_file(path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, 'rb') as stream:
         before = os.fstat(stream.fileno())
-        if not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022 or before.st_size > 1048576:
+        if not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022 or before.st_size > limit:
             raise ValueError('protected bounded regular file required')
-        raw = stream.read(1048577); after = os.fstat(stream.fileno())
+        raw = stream.read(limit+1); after = os.fstat(stream.fileno())
     keys = ('st_dev', 'st_ino', 'st_uid', 'st_gid', 'st_mode', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
     same = lambda info: tuple(getattr(info, k) for k in keys)
-    if len(raw) > 1048576 or same(before) != same(after) or same(after) != same(path.lstat()):
+    if len(raw) > limit or same(before) != same(after) or same(after) != same(path.lstat()):
         raise ValueError('file changed during read')
     return raw, {'sha256': sha(raw), 'uid': after.st_uid, 'gid': after.st_gid,
         'mode': stat.S_IMODE(after.st_mode), 'size': after.st_size, 'inode': after.st_ino,
@@ -257,28 +260,38 @@ def sync_projection():
     return result
 
 
-def dns_queries(addresses):
+def dns_queries(addresses, uptime=False):
     rows = []
     endpoints = [('127.0.0.1', '5335'), ('::1', '5335')]+[(a, '53') for a in (*addresses, *VIPS)]
+    queries = [(NAME, 'A'), (NAME, 'AAAA'),
+        (ipaddress.ip_address(ADDRESSES[0]).reverse_pointer+'.', 'PTR'),
+        (ipaddress.ip_address(ADDRESSES[1]).reverse_pointer+'.', 'PTR')]
+    if uptime:
+        queries += [(name, kind) for name in UPTIME_NAMES for kind in ('A', 'AAAA')]
+        queries += [(ipaddress.ip_address(address).reverse_pointer+'.', 'PTR') for address in UPTIME_ADDRESSES]
     for server, port in endpoints:
-        for query, kind in ((NAME, 'A'), (NAME, 'AAAA'),
-                            (ipaddress.ip_address(ADDRESSES[0]).reverse_pointer+'.', 'PTR'),
-                            (ipaddress.ip_address(ADDRESSES[1]).reverse_pointer+'.', 'PTR')):
+        for query, kind in queries:
             rows.append(probe(['/usr/bin/dig', '-r', '@'+server, '-p', port, query, kind,
                 '+time=2', '+tries=1', '+ignore', '+nosearch', '+nocookie', '+noall', '+comments', '+answer', '+stats'], timeout=3))
     return rows
 
 
 def collect_dns(spec, result):
-    services = ('unbound.service', 'pihole-FTL.service', 'keepalived.service')
+    uptime = spec.get('uptime', False)
+    vips = COUPLED_VIPS if uptime else VIPS
+    services = ('unbound.service', 'pihole-FTL.service', 'keepalived.service') + (('caddy.service',) if uptime else ())
     result['services_before'] = {name: unit(name) for name in services}
     addresses = json.loads(required(['/usr/sbin/ip', '-j', 'address', 'show']))
     current = {a['local'] for row in addresses for a in row.get('addr_info', [])}
     result['addresses'] = addresses
-    result['vip_ownership'] = {a: a in current for a in VIPS}
+    result['vip_ownership'] = {a: a in current for a in vips}
     result['mixed_vip_ownership'] = len(set(result['vip_ownership'].values())) != 1
     raw, meta = read_file(FRAGMENT)
     candidate, additions = ntp_candidate(raw)
+    if uptime:
+        # Readiness captures current state only; no proposed record mutation.
+        candidate, additions = raw, []
+        result['candidate_prepared'] = False
     result['fragment'] = {'metadata': meta, 'base64': base64.b64encode(raw).decode()}
     result['candidate_additions'] = additions
     expanded, files, edges = config_graph()
@@ -291,7 +304,7 @@ def collect_dns(spec, result):
     for name in files:
         text = read_file(name)[0].decode()
         selected = [line.strip() for line in text.splitlines() if re.match(r'^\s*local-(?:data|data-ptr|zone):', line)
-                    and any(term in line for term in ('ntp1.local.theama.co', *ADDRESSES, 'local.theama.co'))]
+                    and any(term in line for term in ('ntp1.local.theama.co', *ADDRESSES, 'local.theama.co', *(UPTIME_ADDRESSES if uptime else ())))]
         relevant[name] = selected
     result.update(config_files=files, include_edges=edges, relevant_records=relevant,
         effective_sha256=sha(expanded), candidate_effective_sha256=sha(proposed))
@@ -318,15 +331,26 @@ def collect_dns(spec, result):
         '-c', 'core.fsmonitor=false', '-C', '/etc/.pihole', *argv]) for label, argv in
         (('commit', ['rev-parse', '--verify', 'HEAD']), ('tag', ['describe', '--tags', '--exact-match', 'HEAD']))}
     result['synchronization'] = sync_projection()
-    result['dns_queries'] = dns_queries(spec['target']['addresses'])
+    result['dns_queries'] = dns_queries(spec['target']['addresses'], uptime=uptime)
+    if uptime:
+        collect_uptime_metadata(result, services)
     result['services_after'] = {name: unit(name) for name in services}
     if result['services_before'] != result['services_after']:
         raise ValueError('DNS service identity drift during capture')
     after_addresses = json.loads(required(['/usr/sbin/ip', '-j', 'address', 'show']))
     after_local = {a['local'] for row in after_addresses for a in row.get('addr_info', [])}
-    result['vip_ownership_after'] = {a: a in after_local for a in VIPS}
+    result['vip_ownership_after'] = {a: a in after_local for a in vips}
     if result['vip_ownership_after'] != result['vip_ownership']:
         raise ValueError('DNS VIP ownership drift during capture')
+    if uptime:
+        for name, metadata in result['binary_metadata'].items():
+            if read_file(name, limit=16777216)[1] != metadata:
+                raise ValueError('binary identity drift during capture')
+        for name, definition in result['service_definitions'].items():
+            raw = required(['/usr/bin/systemctl', 'show', name,
+                '--property=ExecStart,ExecStartPre,ExecStartPost,ExecReload,FragmentPath,DropInPaths'])
+            if sha(raw.encode()) != definition['sha256']:
+                raise ValueError('service definition drift during capture')
     if result['mixed_vip_ownership']:
         result['findings'].append('Mixed DNS VIP ownership requires a hold before deployment.')
     for name, record in files.items():
@@ -338,6 +362,26 @@ def collect_dns(spec, result):
     result['findings'].extend(['Synchronization projection is incomplete; establish all writers before deployment.',
         'Restartdns token/version evidence requires supported full restart-path qualification before deployment.',
         'Other effective includes and current answers require conflict review; no deployment is authorized.'])
+
+
+def collect_uptime_metadata(result, services):
+    """Read current executable identities and sanitized service launch definitions."""
+    binaries = ('/usr/sbin/unbound', '/usr/sbin/unbound-checkconf', '/usr/bin/dig')
+    result['binary_metadata'] = {name: read_file(name, limit=16777216)[1] for name in binaries}
+    result['service_definitions'] = {}
+    for name in services:
+        raw = required(['/usr/bin/systemctl', 'show', name,
+            '--property=ExecStart,ExecStartPre,ExecStartPost,ExecReload,FragmentPath,DropInPaths'])
+        result['service_definitions'][name] = {'sha256': sha(raw.encode()),
+            'projection': control_projection(raw.encode(), code=True)}
+    result['journal_cursor'] = probe(['/usr/bin/journalctl', '--no-pager', '-n', '0', '--show-cursor',
+        '-u', 'unbound.service', '-u', 'pihole-FTL.service', '-u', 'caddy.service'])
+    result['public_dns'] = [probe(['/usr/bin/dig', '-r', '@'+address, '-p', port,
+        'example.com.', 'A', '+time=2', '+tries=1', '+ignore', '+nosearch', '+nocookie',
+        '+noall', '+comments', '+answer'], timeout=3)
+        for address, port in [('127.0.0.1', '5335'), ('::1', '5335'),
+            *[(address, '53') for address in VIPS]]]
+    result['findings'].append('Review both nodes together: all four coupled VIPs must have one healthy owner; negative/failed queries or missing cursor remain findings, not acceptance.')
 
 
 # Qualification reads are a separate sealed scope; never execute inspected code.
@@ -600,6 +644,8 @@ def collect(spec):
 
 
 def review(spec):
+    if spec.get('uptime'):
+        return uptime_review(spec)
     if spec.get('qualification'):
         return controls_review(spec)
     target = spec['target']
@@ -688,6 +734,53 @@ readiness review. The NTP, dns53 and dns54 archives have distinct hashes.
 '''
 
 
+def uptime_review(spec):
+    t = spec['target']
+    return f"""# Uptime Kuma DNS read-only readiness
+
+Operation {spec['operation_id']}; expires {datetime.fromtimestamp(spec['expires_epoch'], ZoneInfo('America/Chicago')).isoformat()}.
+One IPv4 SSH capture as pi to {t['addresses'][0]}, hostname {t['hostname']},
+strict established Ed25519 alias {t['alias']}. Capture current boot before/after;
+require stability within capture, without asserting the stale October boot.
+One-use receipt precedes contact. No automatic retries or peer progression.
+
+Read protected local-zone bytes/metadata and effective .conf include graph
+under /etc/unbound (64 files, 4 MiB aggregate, 1 MiB each). Reject unsafe files,
+unsupported includes/records and private-key material. Export only the local-zone
+fragment in full; other files export hashes and relevant local record lines.
+Read current Unbound/Pi-hole/Keepalived/Caddy identities, addresses and all four
+coupled VIP roles before/after. Read current Unbound version and control help;
+never invoke control status/reload. Validate current configuration and its
+identical expanded copy through unbound-checkconf; no new candidate is generated.
+Read hashes/metadata of unbound, unbound-checkconf and dig (16 MiB each), fixed
+Pi-hole launcher/version paths and local Git identity. Read sanitized systemd
+launch/reload properties, a journal cursor without journal entries, and existing
+bounded sync metadata/path hints. No keys, environment files, credentials,
+setupVars, arbitrary home files or unredacted unit environment exports.
+
+60 one-attempt UDP DNS queries: preserved NTP A/AAAA and PTR controls, dashboard
+and Kuma host A/AAAA, host PTRs through IPv4/IPv6 loopback Unbound, this node's
+port-53 addresses and both DNS VIPs. Four public A controls through loopbacks and
+DNS VIPs. No DNS queries to proxy-only VIPs. Negative answers are captured for
+review, not treated as deployment acceptance. Caddy state is read, not changed.
+
+Commands eight seconds/64 KiB per stream; DNS three seconds; remote deadline
+240 seconds; SSH controller 270 seconds/16 MiB streams. Retain bounded partial
+results privately. No target staging, configuration write, service action,
+package action, failover, reboot, notification or deployment. SSH/sudo and DNS
+may produce normal audit/cache activity. No recovery is required for this read.
+A failed or incomplete capture stops the reviewed pair; do not replay.
+
+After both captures, locally compare boot/service stability, zone/include/binary
+identities, conflicts, DNS health and coherent four-VIP ownership. Any unresolved
+finding holds deployment. This is readiness evidence only; separate approval
+is required for a newly prepared DNS deployment. Existing consumed bundles remain
+unchanged. Execute only after exact archive approval:
+
+python3 -I -B DIRECTORY/runner.py execute --directory DIRECTORY --sha256 APPROVED_SHA256
+"""
+
+
 def unpack(raw, digest):
     if len(raw) > 8388608 or sha(raw) != digest:
         raise ValueError('archive hash/size mismatch')
@@ -698,8 +791,9 @@ def unpack(raw, digest):
         files = {e.name: archive.extractfile(e).read() for e in entries}
     spec = json.loads(files['spec.json'])
     if (spec.get('mode') not in TARGETS or spec.get('target') != expected_target(spec['mode'], spec.get('qualification', False))
-            or not re.fullmatch(r'ntp1-(?:address|dns53|dns54)-(?:readiness|controls-qualification)-\d{8}-v\d{1,2}', spec['operation_id'])
-            or not spec['operation_id'].startswith('ntp1-'+('address' if spec['mode'] == 'ntp' else spec['mode'])+('-controls-qualification-' if spec.get('qualification') else '-readiness-'))
+            or (spec.get('uptime') and (spec['mode'] == 'ntp' or spec.get('qualification')))
+            or not re.fullmatch(r'(?:ntp1|uptime-kuma)-(?:address|dns53|dns54)-(?:readiness|controls-qualification)-\d{8}-v\d{1,2}', spec['operation_id'])
+            or not spec['operation_id'].startswith(('uptime-kuma-' if spec.get('uptime') else 'ntp1-')+('address' if spec['mode'] == 'ntp' else spec['mode'])+('-controls-qualification-' if spec.get('qualification') else '-readiness-'))
             or spec['expires_epoch']-spec['prepared_epoch'] != 86400
             or not spec['prepared_epoch'] <= time.time() < spec['expires_epoch']-300
             or spec['members'] != {n: sha(v) for n, v in files.items() if n not in ('spec.json', 'review.md')}
@@ -725,12 +819,15 @@ def trusted_key(path, alias):
 def seal(args):
     now = int(time.time())
     qualification = getattr(args, 'qualification', False)
+    uptime = getattr(args, 'uptime', False)
+    if uptime and (qualification or args.mode == 'ntp'):
+        raise ValueError('Uptime readiness is DNS-only and excludes controls qualification')
     if qualification and args.mode not in CONTROL_BOOTS:
         raise ValueError('qualification is DNS-only')
     files = {'runner.py': Path(__file__).read_bytes(), 'helper.py': args.helper.read_bytes(),
         'tests.py': Path(__file__).resolve().parents[1].joinpath('tests/test_ntp_dns_readiness.py').read_bytes(),
         'candidate.conf': args.candidate.read_bytes(), 'known_hosts': trusted_key(args.known_hosts, TARGETS[args.mode]['alias'])}
-    spec = {'mode': args.mode, 'target': expected_target(args.mode, qualification), 'qualification': qualification, 'operation_id': args.output.name,
+    spec = {'mode': args.mode, 'target': expected_target(args.mode, qualification), 'qualification': qualification, 'uptime': uptime, 'operation_id': args.output.name,
         'prepared_epoch': now, 'expires_epoch': now+86400,
         'helper_provenance': 'homelab-ntp/ntpsec/scripts/run-production-inspection.py',
         'members': {n: sha(v) for n, v in files.items()}}
@@ -813,6 +910,7 @@ def main():
     prepare = sub.add_parser('seal')
     prepare.add_argument('--mode', choices=TARGETS, required=True)
     prepare.add_argument('--qualification', action='store_true')
+    prepare.add_argument('--uptime', action='store_true')
     for option in ('helper', 'candidate', 'known-hosts', 'output'):
         prepare.add_argument('--'+option, type=Path, required=True)
     run = sub.add_parser('execute'); run.add_argument('--directory', type=Path, required=True); run.add_argument('--sha256', required=True)

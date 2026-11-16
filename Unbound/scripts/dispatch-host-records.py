@@ -1,5 +1,6 @@
 """One-use hash-gated node mutation, requiring fresh paired acceptance first."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -25,16 +26,26 @@ def main(root, digest, label, phase):
     op = json.loads((root/'operation.json').read_text())
     if op.get('policy') != 'atomic-zone-full-restart-v2' or not op['prepared_epoch'] <= time.time() < op['expires_epoch']-300:
         raise RuntimeError('new_policy_or_expiry_required')
+    loader = importlib.util.spec_from_file_location('zone_verify', root/'verify.py')
+    verifier = importlib.util.module_from_spec(loader)
+    loader.loader.exec_module(verifier)
+    if op.get('boot_policy') != 'operation-admission-v1':
+        raise RuntimeError('operation_boot_admission_policy_required')
+    op = verifier.admitted_operation(root, op, digest)
     if phase == 'apply':
         gate_name = 'before' if label == 'secondary' else 'secondary'
         gate = json.loads((root.parent/('gate-'+gate_name+'.json')).read_text())
         if (not gate.get('accepted') or gate.get('sha256') != digest or
-                not 0 <= time.time()-gate['recorded_epoch'] <= 120):
+                not 0 <= time.time()-gate['recorded_epoch'] <= 120
+                or gate.get('operation_id') != op['operation_id']
+                or gate.get('boot_ids') != {label: node['boot_id'] for label, node in op['nodes'].items()}):
             raise RuntimeError('fresh_paired_gate_required')
     os.umask(0o077)
     invocation = root.parent/(label+'-'+phase+'-receipt.json')
     with invocation.open('x') as stream:
-        json.dump({'sha256': digest, 'node': label, 'phase': phase, 'started_epoch': time.time()}, stream)
+        json.dump({'sha256': digest, 'operation_id': op['operation_id'],
+                   'boot_ids': {name: item['boot_id'] for name, item in op['nodes'].items()},
+                   'node': label, 'phase': phase, 'started_epoch': time.time()}, stream)
         stream.flush()
         os.fsync(stream.fileno())
     payload = {'operation': op, 'node': label, 'phase': phase}
